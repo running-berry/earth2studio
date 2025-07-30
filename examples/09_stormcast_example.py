@@ -28,9 +28,10 @@ see
  - https://arxiv.org/abs/2408.10958
 
 """
+#   "earth2studio[data,stormcast] @ git+https://github.com/NVIDIA/earth2studio.git",
 # /// script
 # dependencies = [
-#   "earth2studio[data,stormcast] @ git+https://github.com/NVIDIA/earth2studio.git",
+#   "earth2studio[data,stormcast] @ file:///home/master/14/andrewhsu/projects/earth2studio/",
 #   "cartopy",
 # ]
 # ///
@@ -78,10 +79,14 @@ load_dotenv()  # TODO: make common example prep function
 from earth2studio.data import HRRR
 from earth2studio.io import ZarrBackend
 from earth2studio.models.px import StormCast
+from earth2studio.models.auto import Package
 
 # Load the default model package which downloads the check point from NGC
 # Use the default conditioning data source GFS_FX
-package = StormCast.load_default_package()
+package = Package(
+    "/home/master/13/dczy/stormcast-v1-era5-hrrr_v1.0.1",
+    cache=False,
+)
 model = StormCast.load_model(package)
 
 # Create the data source
