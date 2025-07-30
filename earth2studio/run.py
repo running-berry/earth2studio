@@ -86,6 +86,8 @@ def deterministic(
     prognostic_ic = prognostic.input_coords()
     time = to_time_array(time)
 
+    logger.info(f"{prognostic.__class__.__name__} has interpolation method: {hasattr(prognostic, "interp_method")}")
+
     if hasattr(prognostic, "interp_method"):
         interp_to = prognostic_ic
         interp_method = prognostic.interp_method

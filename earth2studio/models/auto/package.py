@@ -170,6 +170,9 @@ class Package:
             self.cache_options["expiry_time"] = 31622400  # 1 year
 
         self.root = root
+        logger.info(
+            f"Initializing Package with root: {self.root}, cache: {cache}, cache_options: {self.cache_options}"
+        )
 
         if fs is not None:
             self.fs = fs
