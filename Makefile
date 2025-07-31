@@ -1,5 +1,5 @@
 run:
-	rm -rf /home/master/14/andrewhsu/.cache/uv/environments-v2/09-1-stormcast-example-*
+	rm -rf /home/phd/13/hyyeh/.cache/uv/environments-v2/09-1-stormcast-example-*
 	uv run --refresh examples/09-1_stormcast_example.py 
 
 install:

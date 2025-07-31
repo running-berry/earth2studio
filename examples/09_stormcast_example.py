@@ -31,7 +31,7 @@ see
 #   "earth2studio[data,stormcast] @ git+https://github.com/NVIDIA/earth2studio.git",
 # /// script
 # dependencies = [
-#   "earth2studio[data,stormcast] @ file:///home/master/14/andrewhsu/projects/earth2studio/",
+#   "earth2studio[data,stormcast] @ file:///tmp2/d13922017/weather/berry/earth2studio/",
 #   "cartopy",
 # ]
 # ///

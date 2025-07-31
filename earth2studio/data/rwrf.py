@@ -329,7 +329,7 @@ class RWRF:
         
         dt = datetime.strptime(date_str, "%Y/%m/%d")
         fmt_dt_str = dt.strftime(f"%Y-%m-%d_{int(hr_str):02d}")
-        folder = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
+        folder = "/tmp2/d13922017/weather/berry/physicsnemo/dev/data/rwrf"
         filepath = f"{folder}/{fmt_dt_str}/wrfout_d01_{fmt_dt_str}_interp"
 
         if not os.path.exists(filepath):

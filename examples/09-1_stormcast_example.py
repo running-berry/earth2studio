@@ -31,7 +31,7 @@ see
 #   "earth2studio[data,stormcast] @ git+https://github.com/NVIDIA/earth2studio.git",
 # /// script
 # dependencies = [
-#   "earth2studio[data,stormcast] @ file:///home/master/14/andrewhsu/projects/earth2studio/",
+#   "earth2studio[data,stormcast] @ file:///tmp2/d13922017/weather/berry/earth2studio/",
 #   "cartopy",
 # ]
 # ///
@@ -75,24 +75,6 @@ os.makedirs("outputs", exist_ok=True)
 from dotenv import load_dotenv
 
 load_dotenv()  # TODO: make common example prep function
-
-# from netCDF4 import Dataset
-
-# def load_wrf_interp_nc(date_str: str, hr_str: str) -> Dataset:
-#     dt = datetime.strptime(date_str, "%Y/%m/%d")
-#     fmt_dt_str = dt.strftime(f"%Y-%m-%d_{int(hr_str):02d}")
-#     folder = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
-#     filepath = f"{folder}/{fmt_dt_str}/wrfout_d01_{fmt_dt_str}_interp"
-#     if not os.path.exists(filepath):
-#         raise FileNotFoundError(f"File not found: {filepath}")
-#     ds = Dataset(filepath, mode="r")
-#     return ds
-
-# ds = load_wrf_interp_nc("2019/08/03", str(23).zfill(2))
-# logger.info(f"latitude: {ds.variables['XLAT'][:]}, longitude: {ds.variables['XLONG'][:]}")
-
-# import sys
-# sys.exit(0)
 
 from earth2studio.data import RWRF, HRRR
 from earth2studio.io import ZarrBackend

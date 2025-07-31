@@ -40,7 +40,7 @@ In this example you will learn:
 #   "earth2studio[corrdiff] @ git+https://github.com/NVIDIA/earth2studio.git",
 # /// script
 # dependencies = [
-#   "earth2studio[corrdiff] @ file:///home/master/14/andrewhsu/projects/earth2studio/",
+#   "earth2studio[corrdiff] @ file:///tmp2/d13922017/weather/berry/earth2studio/",
 #   "cartopy",
 # ]
 # ///
