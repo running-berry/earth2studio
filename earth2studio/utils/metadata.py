@@ -22,12 +22,15 @@ from earth2studio.utils.type import VariableArray
 
 def create_dummy_metadata(
     variable: str | list[str] | VariableArray,
-    conditioning_variable: str | list[str] | VariableArray = "",
-    invariant: str | list[str] | VariableArray = "c",
+    conditioning_variable: str | list[str] | VariableArray,
+    invariant: str | list[str] | VariableArray = [],
     y: int = 32,
     x: int = 32,
+    variable_file_path: str | None = None,
+    conditioning_file_path: str | None = None,
+    invariant_file_path: str | None = None,
 ) -> xr.Dataset:
-    """Creates a dummy metadata xarray dataset with a structure matching the StormCast model's metadata.
+    """Creates a StormCast metadata xarray dataset with a structure matching the StormCast model's metadata.
 
     Parameters
     ----------
@@ -44,11 +47,17 @@ def create_dummy_metadata(
         The number of latitude grid points.
     x : int
         The number of longitude grid points.
+    variable_file_path : str | None
+        Path to the file containing the variable std/mean. If None, the variable std/mean will be randomly generated.
+    conditioning_file_path : str | None
+        Path to the file containing the conditioning variable std/mean. If None, the conditioning variable std/mean will be randomly generated.
+    invariant_file_path : str | None
+        Path to the file containing the invariant data. If None, the invariant data will be randomly generated.
 
     Returns
     -------
     xarray.Dataset
-        A dummy Stormcast metadata xarray dataset
+        A Stormcast metadata xarray dataset
 
     """
 
@@ -56,8 +65,7 @@ def create_dummy_metadata(
         variable = [variable]
 
     if isinstance(conditioning_variable, str):
-        # conditioning_variable = [conditioning_variable]
-        conditioning_variable = []
+        conditioning_variable = [conditioning_variable]
 
     if isinstance(invariant, str):
         invariant = [invariant]
@@ -86,24 +94,47 @@ def create_dummy_metadata(
         "y": np.arange(dims["y"]),
     }
 
+    if variable_file_path is not None:
+        variable_means = xr.open_dataarray(variable_file_path).values
+        variable_std = xr.open_dataarray(variable_file_path).values
+    else:
+        variable_means = np.random.rand(dims["conditioning_variable"]).astype(
+            np.float32
+        )
+        variable_std = (
+            np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1
+        )
+
+    if conditioning_file_path is not None:
+        conditioning_means = xr.open_dataarray(conditioning_file_path).values
+        conditioning_std = xr.open_dataarray(conditioning_file_path).values
+    else:
+        conditioning_means = np.random.rand(dims["conditioning_variable"]).astype(
+            np.float32
+        )
+        conditioning_std = (
+            np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1
+        )
+
+    if invariant_file_path is not None:
+        invariant_data = xr.open_dataarray(invariant_file_path).values
+    else:
+        invariant_data = np.random.rand(dims["invariant"], dims["y"], dims["x"]).astype(
+            np.float32
+        )
+
     data_vars = {
         "conditioning_means": (
             ("conditioning_variable",),
-            np.random.rand(dims["conditioning_variable"]).astype(np.float32),
+            conditioning_means,
         ),
         "conditioning_stds": (
             ("conditioning_variable",),
-            np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1,
+            conditioning_std,
         ),
-        "invariants": (
-            ("invariant", "y", "x"),
-            np.random.rand(dims["invariant"], dims["y"], dims["x"]).astype(np.float32),
-        ),
-        "means": (("variable",), np.random.rand(dims["variable"]).astype(np.float32)),
-        "stds": (
-            ("variable",),
-            np.random.rand(dims["variable"]).astype(np.float32) + 0.1,
-        ),
+        "invariants": (("invariant", "y", "x"), invariant_data),
+        "means": (("variable",), variable_means),
+        "stds": (("variable",), variable_std),
     }
 
     ds = xr.Dataset(data_vars=data_vars, coords=coords)

@@ -721,7 +721,9 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         # Load metadata: means, stds, grid
         # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
         # metadata = xr.open_zarr(store, zarr_format=2)
-        metadata = create_dummy_metadata(variable=["t2m"])
+        metadata = create_dummy_metadata(
+            variable=["t2m"], conditioning_variable=["t2m"]
+        )
 
         print("data", metadata)
         # prints
@@ -780,7 +782,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
             variables=variables,
             conditioning_means=conditioning_means,
             conditioning_stds=conditioning_stds,
-            conditioning_data_source=conditioning_data_source,
+            conditioning_data_source=conditioning_data_source,  #!  use ERA5 to replay/reconstruct past events, use GFS_FX for forecasting
             conditioning_variables=conditioning_variables,
             sampler_args=sampler_args,
         )
