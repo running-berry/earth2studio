@@ -282,8 +282,12 @@ class Package:
         io.BufferedReader
             Opened file, can get file path with BufferedReader.name
         """
-        full_path = os.path.join(self.root, file_path)
+        if file_path.startswith("/home/"):
+            full_path = file_path
+        else:
+            full_path = os.path.join(self.root, file_path)
         filename = os.path.basename(full_path)
+        logger.info(f"Opening file {filename} at {full_path} from {file_path}")
 
         with TqdmCallbackRelative(
             tqdm_kwargs={

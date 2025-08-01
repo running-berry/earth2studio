@@ -37,6 +37,7 @@ from earth2studio.utils.imports import (
     OptionalDependencyFailure,
     check_optional_dependencies,
 )
+from earth2studio.utils.metadata import create_dummy_metadata
 from earth2studio.utils.type import CoordSystem
 
 try:
@@ -292,7 +293,7 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         # Load metadata: means, stds, grid
         store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
         metadata = xr.open_zarr(store, zarr_format=2)
-        
+
         # print("data", metadata)
         # prints
         # data <xarray.Dataset> Size: 5MB
@@ -314,7 +315,9 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         #     stds                   (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
 
         variables = metadata["variable"].values
-        conditioning_variables = metadata["conditioning_variable"].values #? what's conditioning variable?
+        conditioning_variables = metadata[
+            "conditioning_variable"
+        ].values  # ? what's conditioning variable?
 
         # Expand dims and tensorify normalization buffers
         means = torch.from_numpy(metadata["means"].values[None, :, None, None])
@@ -327,7 +330,9 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         )
 
         # Load invariants
-        invariants = metadata["invariants"].sel(invariant=config.data.invariants).values #? what's invariant?
+        invariants = (
+            metadata["invariants"].sel(invariant=config.data.invariants).values
+        )  # ? what's invariant?
         invariants = torch.from_numpy(invariants).repeat(1, 1, 1, 1)
 
         # EDM sampler arguments
@@ -352,7 +357,6 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
 
     @torch.inference_mode()
     def _forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
-
         # Scale data
         if "conditioning_means" in self._buffers:
             conditioning = conditioning - self.conditioning_means
@@ -458,7 +462,6 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         x: torch.Tensor,
         coords: CoordSystem,
     ) -> Generator[tuple[torch.Tensor, CoordSystem], None, None]:
-
         coords = coords.copy()
         self.output_coords(coords)
         yield x, coords
@@ -557,8 +560,8 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         means: torch.Tensor,
         stds: torch.Tensor,
         invariants: torch.Tensor,
-        rwrf_lat_lim: tuple[int, int] = (21, 25),
-        rwrf_lon_lim: tuple[int, int] = (121, 125),
+        rwrf_lat_lim: tuple[int, int] = (15, 47),
+        rwrf_lon_lim: tuple[int, int] = (110, 142),
         variables: np.array = np.array(VARIABLES),
         conditioning_means: torch.Tensor | None = None,
         conditioning_stds: torch.Tensor | None = None,
@@ -574,7 +577,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         self.register_buffer("invariants", invariants)
         self.sampler_args = sampler_args
 
-        rwrf_lat, rwrf_lon = RWRF.grid() #? fix this grid coordinates as well
+        rwrf_lat, rwrf_lon = RWRF.grid()
         self.lat = rwrf_lat[
             rwrf_lat_lim[0] : rwrf_lat_lim[1], rwrf_lon_lim[0] : rwrf_lon_lim[1]
         ]
@@ -703,17 +706,24 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         config = OmegaConf.load(package.resolve("model.yaml"))
 
         regression = PhysicsNemoModule.from_checkpoint(
-            package.resolve("StormCastUNet.0.0.mdlus")
+            # package.resolve("StormCastUNet.0.0.mdlus")
+            package.resolve(
+                "/home/master/14/andrewhsu/projects/earth2studio/cache/rundir_reg_0710_24hrs/stormcast-training/0/checkpoints_regression/StormCastUNet.0.16000.mdlus"
+            )
         )
         diffusion = PhysicsNemoModule.from_checkpoint(
-            package.resolve("EDMPrecond.0.0.mdlus")
+            # package.resolve("EDMPrecond.0.0.mdlus")
+            package.resolve(
+                "/home/master/14/andrewhsu/projects/earth2studio/cache/rundir_dif_0710_24hrs/diffusion/0/checkpoints_diffusion/EDMPrecond.0.16000.mdlus"
+            )
         )
 
         # Load metadata: means, stds, grid
-        store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
-        metadata = xr.open_zarr(store, zarr_format=2)
-        
-        # print("data", metadata)
+        # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
+        # metadata = xr.open_zarr(store, zarr_format=2)
+        metadata = create_dummy_metadata(variable=["t2m"])
+
+        print("data", metadata)
         # prints
         # data <xarray.Dataset> Size: 5MB
         # Dimensions:                (conditioning_variable: 26, invariant: 2, y: 512,
@@ -734,7 +744,9 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         #     stds                   (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
 
         variables = metadata["variable"].values
-        conditioning_variables = metadata["conditioning_variable"].values #? what's conditioning variable?
+        conditioning_variables = metadata[
+            "conditioning_variable"
+        ].values  # ? what's conditioning variable?
 
         # Expand dims and tensorify normalization buffers
         means = torch.from_numpy(metadata["means"].values[None, :, None, None])
@@ -747,7 +759,10 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         )
 
         # Load invariants
-        invariants = metadata["invariants"].sel(invariant=config.data.invariants).values #? what's invariant?
+        # invariants = (
+        #     metadata["invariants"].sel(invariant=config.data.invariants).values
+        # )  # ? what's invariant?
+        invariants = metadata["invariants"].values
         invariants = torch.from_numpy(invariants).repeat(1, 1, 1, 1)
 
         # EDM sampler arguments
@@ -772,7 +787,6 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
 
     @torch.inference_mode()
     def _forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
-
         # Scale data
         if "conditioning_means" in self._buffers:
             conditioning = conditioning - self.conditioning_means
@@ -782,14 +796,23 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         x = (x - self.means) / self.stds
 
         # Run regression model
+        print(
+            f"\nshape of x: {x.shape}, conditioning: {conditioning.shape}, invariants: {self.invariants.shape}"
+        )
         invariant_tensor = self.invariants.repeat(x.shape[0], 1, 1, 1)
+        print(f"shape of invariant_tensor: {invariant_tensor.shape}")
         concats = torch.cat((x, conditioning, invariant_tensor), dim=1)
+        print(f"shape of concats: {concats.shape}")
 
         out = self.regression_model(concats)
+        print(f"shape of out: {out.shape}")
 
         # Concat for diffusion conditioning
-        condition = torch.cat((x, out, invariant_tensor), dim=1)
+        # condition = torch.cat((x, out, invariant_tensor), dim=1)
+        condition = torch.cat((x, out), dim=1)
+        print(f"shape of condition: {condition.shape}")
         latents = torch.randn_like(x)
+        print(f"shape of latents: {latents.shape}")
 
         # Run diffusion model
         edm_out = deterministic_sampler(
@@ -878,7 +901,6 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         x: torch.Tensor,
         coords: CoordSystem,
     ) -> Generator[tuple[torch.Tensor, CoordSystem], None, None]:
-
         coords = coords.copy()
         self.output_coords(coords)
         yield x, coords

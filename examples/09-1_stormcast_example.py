@@ -94,7 +94,7 @@ load_dotenv()  # TODO: make common example prep function
 # import sys
 # sys.exit(0)
 
-from earth2studio.data import RWRF, HRRR
+from earth2studio.data import HRRR, RWRF
 from earth2studio.io import ZarrBackend
 from earth2studio.models.px import StormCastTaiwan
 
@@ -124,7 +124,9 @@ io = ZarrBackend()
 import earth2studio.run as run
 
 nsteps = 4
-dt = datetime(2023, 10, 4) #! Requested date time needs to be after January 1st, 2021 for GFS on AWS
+dt = datetime(
+    2023, 10, 4
+)  #! Requested date time needs to be after January 1st, 2021 for GFS on AWS
 date = dt.isoformat().split("T")[0]
 io = run.deterministic([date], nsteps, model, data, io)
 
@@ -152,9 +154,9 @@ plt.close("all")
 
 # Create a correct Lambert Conformal projection
 projection = ccrs.LambertConformal(
-    central_longitude=262.5,
-    central_latitude=38.5,
-    standard_parallels=(38.5, 38.5),
+    central_longitude=126,
+    central_latitude=23,
+    standard_parallels=(23, 23),
     globe=ccrs.Globe(semimajor_axis=6371229, semiminor_axis=6371229),
 )
 
@@ -167,12 +169,7 @@ im = ax.pcolormesh(
     model.lat,
     io[variable][0, step],
     transform=ccrs.PlateCarree(),
-    cmap="Spectral_r",
-)
-
-# Set state lines
-ax.add_feature(
-    cartopy.feature.STATES.with_scale("50m"), linewidth=0.5, edgecolor="black", zorder=2
+    cmap="RdBu_r",
 )
 
 # Set title

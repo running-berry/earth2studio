@@ -269,12 +269,12 @@ class RWRF:
             Timestamps to return data for (UTC).
         variable : str | list[str] | VariableArray
             String, list of strings or array of strings that refer to variables to
-            return. Must be in the HRRR lexicon.
+            return. Must be in the RWRF lexicon.
 
         Returns
         -------
         xr.DataArray
-            HRRR weather data array
+            RWRF weather data array
         """
         if self.fs is None:
             raise ValueError(
@@ -298,7 +298,7 @@ class RWRF:
         else:
             session = None
 
-        # Generate HRRR lat-lon grid to append onto data array
+        # Generate RWRF lat-lon grid to append onto data array
         lat, lon = self.grid() #? fix this grid coordinates
         # Note, this could be more memory efficient and avoid pre-allocation of the array
         # but this is much much cleaner to deal with
