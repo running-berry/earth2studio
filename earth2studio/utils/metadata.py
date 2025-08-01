@@ -27,7 +27,7 @@ def create_dummy_metadata(
     y: int = 32,
     x: int = 32,
     variable_file_path: str | None = None,
-    conditioning_file_path: str | None = None,
+    conditioning_variable_file_path: str | None = None,
     invariant_file_path: str | None = None,
 ) -> xr.Dataset:
     """Creates a StormCast metadata xarray dataset with a structure matching the StormCast model's metadata.
@@ -49,7 +49,7 @@ def create_dummy_metadata(
         The number of longitude grid points.
     variable_file_path : str | None
         Path to the file containing the variable std/mean. If None, the variable std/mean will be randomly generated.
-    conditioning_file_path : str | None
+    conditioning_variable_file_path : str | None
         Path to the file containing the conditioning variable std/mean. If None, the conditioning variable std/mean will be randomly generated.
     invariant_file_path : str | None
         Path to the file containing the invariant data. If None, the invariant data will be randomly generated.
@@ -95,24 +95,20 @@ def create_dummy_metadata(
     }
 
     if variable_file_path is not None:
-        variable_means = xr.open_dataarray(variable_file_path).values
-        variable_std = xr.open_dataarray(variable_file_path).values
+        variable_means = np.load(f"{variable_file_path}/means.npy")
+        variable_stds = np.load(f"{variable_file_path}/stds.npy")
     else:
-        variable_means = np.random.rand(dims["conditioning_variable"]).astype(
-            np.float32
-        )
-        variable_std = (
-            np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1
-        )
+        variable_means = np.random.rand(dims["variable"]).astype(np.float32)
+        variable_stds = np.random.rand(dims["variable"]).astype(np.float32) + 0.1
 
-    if conditioning_file_path is not None:
-        conditioning_means = xr.open_dataarray(conditioning_file_path).values
-        conditioning_std = xr.open_dataarray(conditioning_file_path).values
+    if conditioning_variable_file_path is not None:
+        conditioning_means = np.load(f"{conditioning_variable_file_path}/means.npy")
+        conditioning_stds = np.load(f"{conditioning_variable_file_path}/stds.npy")
     else:
         conditioning_means = np.random.rand(dims["conditioning_variable"]).astype(
             np.float32
         )
-        conditioning_std = (
+        conditioning_stds = (
             np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1
         )
 
@@ -130,11 +126,11 @@ def create_dummy_metadata(
         ),
         "conditioning_stds": (
             ("conditioning_variable",),
-            conditioning_std,
+            conditioning_stds,
         ),
         "invariants": (("invariant", "y", "x"), invariant_data),
         "means": (("variable",), variable_means),
-        "stds": (("variable",), variable_std),
+        "stds": (("variable",), variable_stds),
     }
 
     ds = xr.Dataset(data_vars=data_vars, coords=coords)

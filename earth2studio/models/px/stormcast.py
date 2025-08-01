@@ -722,7 +722,10 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
         # metadata = xr.open_zarr(store, zarr_format=2)
         metadata = create_dummy_metadata(
-            variable=["t2m"], conditioning_variable=["t2m"]
+            variable=["t2m"],
+            conditioning_variable=["t2m"],
+            variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/HighRes/stats/",
+            conditioning_variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/LowRes/stats/",
         )
 
         print("data", metadata)
