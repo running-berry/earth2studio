@@ -23,7 +23,7 @@ from earth2studio.utils.type import VariableArray
 def create_dummy_metadata(
     variable: str | list[str] | VariableArray,
     conditioning_variable: str | list[str] | VariableArray,
-    invariant: str | list[str] | VariableArray = [],
+    invariant: str | list[str] | VariableArray,
     y: int = 32,
     x: int = 32,
     variable_file_path: str | None = None,

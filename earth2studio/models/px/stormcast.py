@@ -724,6 +724,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         metadata = create_dummy_metadata(
             variable=["t2m"],
             conditioning_variable=["t2m"],
+            invariant=[],
             variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/HighRes/stats/",
             conditioning_variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/LowRes/stats/",
         )
@@ -813,8 +814,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         print(f"shape of out: {out.shape}")
 
         # Concat for diffusion conditioning
-        # condition = torch.cat((x, out, invariant_tensor), dim=1)
-        condition = torch.cat((x, out), dim=1)
+        condition = torch.cat((x, out, invariant_tensor), dim=1)
         print(f"shape of condition: {condition.shape}")
         latents = torch.randn_like(x)
         print(f"shape of latents: {latents.shape}")
