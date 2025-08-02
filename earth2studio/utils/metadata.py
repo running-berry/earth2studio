@@ -20,6 +20,88 @@ import xarray as xr
 from earth2studio.utils.type import VariableArray
 
 
+def prep_metadata_inputs(
+    variable: str | list[str] | VariableArray,
+    conditioning_variable: str | list[str] | VariableArray,
+    invariant: str | list[str] | VariableArray,
+) -> tuple[list[str], list[str], list[str]]:
+    """Simple method to pre-process metadata inputs into a common form
+
+    Parameters
+    ----------
+    variable : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to variables
+    conditioning_variable : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to conditioning variables
+    invariant : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to invariant variables
+
+    Returns
+    -------
+    tuple[list[str], list[str], list[str]]
+        Variable, conditioning variable, and invariant lists
+    """
+    if isinstance(variable, str):
+        variable = [variable]
+
+    if isinstance(conditioning_variable, str):
+        conditioning_variable = [conditioning_variable]
+
+    if isinstance(invariant, str):
+        invariant = [invariant]
+
+    return variable, conditioning_variable, invariant
+
+
+def load_means_stds(
+    dims: tuple[int, ...], file_path: str | None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Simple method to load means and standard deviations from .npy files or generate random numpy arrays.
+
+    Parameters
+    ----------
+    dims : tuple[int, ...]
+        Dimensions of the array to be loaded or generated.
+    file_path : str | None
+        Path to the directory containing the means and stds .npy files. If None, random data will be generated.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Tuple containing the means and standard deviations as numpy arrays.
+    """
+    if file_path is not None:
+        means = np.load(f"{file_path}/means.npy")
+        stds = np.load(f"{file_path}/stds.npy")
+    else:
+        means = np.random.rand(*dims).astype(np.float32)
+        stds = np.random.rand(*dims).astype(np.float32) + 0.1
+    return means, stds
+
+
+def load_invariant_data(dims: tuple[int, ...], file_path: str | None) -> np.ndarray:
+    """Simple method to load invariant data from zarr files or generate random numpy arrays.
+
+    Parameters
+    ----------
+    dims : tuple[int, ...]
+        Dimensions of the array to be loaded or generated.
+    file_path : str | None
+        Path to the directory containing the invariant data files. If None, random data will be generated.
+
+    Returns
+    -------
+    np.ndarray
+        Numpy array containing the invariant data.
+    """
+    if file_path is not None:
+        return xr.open_zarr(
+            file_path
+        ).values  # TODO: fix this after invariant data is available
+    else:
+        return np.random.rand(*dims).astype(np.float32)
+
+
 def create_dummy_metadata(
     variable: str | list[str] | VariableArray,
     conditioning_variable: str | list[str] | VariableArray,
@@ -48,9 +130,9 @@ def create_dummy_metadata(
     x : int
         The number of longitude grid points.
     variable_file_path : str | None
-        Path to the file containing the variable std/mean. If None, the variable std/mean will be randomly generated.
+        Path to the file containing the variable stds/means. If None, the variable stds/means will be randomly generated.
     conditioning_variable_file_path : str | None
-        Path to the file containing the conditioning variable std/mean. If None, the conditioning variable std/mean will be randomly generated.
+        Path to the file containing the conditioning variable stds/means. If None, the conditioning variable stds/means will be randomly generated.
     invariant_file_path : str | None
         Path to the file containing the invariant data. If None, the invariant data will be randomly generated.
 
@@ -61,14 +143,9 @@ def create_dummy_metadata(
 
     """
 
-    if isinstance(variable, str):
-        variable = [variable]
-
-    if isinstance(conditioning_variable, str):
-        conditioning_variable = [conditioning_variable]
-
-    if isinstance(invariant, str):
-        invariant = [invariant]
+    variable, conditioning_variable, invariant = prep_metadata_inputs(
+        variable, conditioning_variable, invariant
+    )
 
     dims = {
         "conditioning_variable": len(conditioning_variable),
@@ -94,30 +171,17 @@ def create_dummy_metadata(
         "y": np.arange(dims["y"]),
     }
 
-    if variable_file_path is not None:
-        variable_means = np.load(f"{variable_file_path}/means.npy")
-        variable_stds = np.load(f"{variable_file_path}/stds.npy")
-    else:
-        variable_means = np.random.rand(dims["variable"]).astype(np.float32)
-        variable_stds = np.random.rand(dims["variable"]).astype(np.float32) + 0.1
+    variable_means, variable_stds = load_means_stds(
+        (dims["variable"],), variable_file_path
+    )
 
-    if conditioning_variable_file_path is not None:
-        conditioning_means = np.load(f"{conditioning_variable_file_path}/means.npy")
-        conditioning_stds = np.load(f"{conditioning_variable_file_path}/stds.npy")
-    else:
-        conditioning_means = np.random.rand(dims["conditioning_variable"]).astype(
-            np.float32
-        )
-        conditioning_stds = (
-            np.random.rand(dims["conditioning_variable"]).astype(np.float32) + 0.1
-        )
+    conditioning_means, conditioning_stds = load_means_stds(
+        (dims["conditioning_variable"],), conditioning_variable_file_path
+    )
 
-    if invariant_file_path is not None:
-        invariant_data = xr.open_dataarray(invariant_file_path).values
-    else:
-        invariant_data = np.random.rand(dims["invariant"], dims["y"], dims["x"]).astype(
-            np.float32
-        )
+    invariant_data = load_invariant_data(
+        (dims["invariant"], dims["y"], dims["x"]), invariant_file_path
+    )
 
     data_vars = {
         "conditioning_means": (

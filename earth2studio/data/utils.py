@@ -152,7 +152,9 @@ def prep_data_array(
         Tuple containing output tensor and coordinate OrderedDict
     """
 
-    logger.info(f"Using {interp_method} interpolation method to interpolate to {interp_to}")
+    logger.info(
+        f"Using {interp_method} interpolation method to interpolate to {interp_to}"
+    )
     # Initialize the output CoordSystem
     out_coords = OrderedDict()
     for dim in da.coords.dims:
