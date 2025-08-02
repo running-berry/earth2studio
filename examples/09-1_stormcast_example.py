@@ -94,14 +94,14 @@ load_dotenv()  # TODO: make common example prep function
 # import sys
 # sys.exit(0)
 
-from earth2studio.data import HRRR, RWRF
+from earth2studio.data import ARCO, HRRR, RWRF
 from earth2studio.io import ZarrBackend
 from earth2studio.models.px import StormCastTaiwan
 
 # Load the default model package which downloads the check point from NGC
 # Use the default conditioning data source GFS_FX
 package = StormCastTaiwan.load_default_package()
-model = StormCastTaiwan.load_model(package)
+model = StormCastTaiwan.load_model(package, ARCO())
 
 # Create the data source
 data = RWRF()
