@@ -20,89 +20,7 @@ import xarray as xr
 from earth2studio.utils.type import VariableArray
 
 
-def prep_metadata_inputs(
-    variable: str | list[str] | VariableArray,
-    conditioning_variable: str | list[str] | VariableArray,
-    invariant: str | list[str] | VariableArray,
-) -> tuple[list[str], list[str], list[str]]:
-    """Simple method to pre-process metadata inputs into a common form
-
-    Parameters
-    ----------
-    variable : str | list[str] | VariableArray
-        String, list of strings or array of strings that refer to variables
-    conditioning_variable : str | list[str] | VariableArray
-        String, list of strings or array of strings that refer to conditioning variables
-    invariant : str | list[str] | VariableArray
-        String, list of strings or array of strings that refer to invariant variables
-
-    Returns
-    -------
-    tuple[list[str], list[str], list[str]]
-        Variable, conditioning variable, and invariant lists
-    """
-    if isinstance(variable, str):
-        variable = [variable]
-
-    if isinstance(conditioning_variable, str):
-        conditioning_variable = [conditioning_variable]
-
-    if isinstance(invariant, str):
-        invariant = [invariant]
-
-    return variable, conditioning_variable, invariant
-
-
-def load_means_stds(
-    dims: tuple[int, ...], file_path: str | None
-) -> tuple[np.ndarray, np.ndarray]:
-    """Simple method to load means and standard deviations from .npy files or generate random numpy arrays.
-
-    Parameters
-    ----------
-    dims : tuple[int, ...]
-        Dimensions of the array to be loaded or generated.
-    file_path : str | None
-        Path to the directory containing the means and stds .npy files. If None, random data will be generated.
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        Tuple containing the means and standard deviations as numpy arrays.
-    """
-    if file_path is not None:
-        means = np.load(f"{file_path}/means.npy")
-        stds = np.load(f"{file_path}/stds.npy")
-    else:
-        means = np.random.rand(*dims).astype(np.float32)
-        stds = np.random.rand(*dims).astype(np.float32) + 0.1
-    return means, stds
-
-
-def load_invariant_data(dims: tuple[int, ...], file_path: str | None) -> np.ndarray:
-    """Simple method to load invariant data from zarr files or generate random numpy arrays.
-
-    Parameters
-    ----------
-    dims : tuple[int, ...]
-        Dimensions of the array to be loaded or generated.
-    file_path : str | None
-        Path to the directory containing the invariant data files. If None, random data will be generated.
-
-    Returns
-    -------
-    np.ndarray
-        Numpy array containing the invariant data.
-    """
-    if file_path is not None:
-        return xr.open_zarr(
-            file_path
-        ).values  # TODO: fix this after invariant data is available
-    else:
-        return np.random.rand(*dims).astype(np.float32)
-
-
-def create_dummy_metadata(
+def create_metadata(
     variable: str | list[str] | VariableArray,
     conditioning_variable: str | list[str] | VariableArray,
     invariant: str | list[str] | VariableArray,
@@ -200,3 +118,85 @@ def create_dummy_metadata(
     ds = xr.Dataset(data_vars=data_vars, coords=coords)
 
     return ds
+
+
+def prep_metadata_inputs(
+    variable: str | list[str] | VariableArray,
+    conditioning_variable: str | list[str] | VariableArray,
+    invariant: str | list[str] | VariableArray,
+) -> tuple[list[str], list[str], list[str]]:
+    """Simple method to pre-process metadata inputs into a common form
+
+    Parameters
+    ----------
+    variable : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to variables
+    conditioning_variable : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to conditioning variables
+    invariant : str | list[str] | VariableArray
+        String, list of strings or array of strings that refer to invariant variables
+
+    Returns
+    -------
+    tuple[list[str], list[str], list[str]]
+        Variable, conditioning variable, and invariant lists
+    """
+    if isinstance(variable, str):
+        variable = [variable]
+
+    if isinstance(conditioning_variable, str):
+        conditioning_variable = [conditioning_variable]
+
+    if isinstance(invariant, str):
+        invariant = [invariant]
+
+    return variable, conditioning_variable, invariant
+
+
+def load_means_stds(
+    dims: tuple[int, ...], file_path: str | None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Simple method to load means and standard deviations from .npy files or generate random numpy arrays.
+
+    Parameters
+    ----------
+    dims : tuple[int, ...]
+        Dimensions of the array to be loaded or generated.
+    file_path : str | None
+        Path to the directory containing the means and stds .npy files. If None, random data will be generated.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Tuple containing the means and standard deviations as numpy arrays.
+    """
+    if file_path is not None:
+        means = np.load(f"{file_path}/means.npy")
+        stds = np.load(f"{file_path}/stds.npy")
+    else:
+        means = np.random.rand(*dims).astype(np.float32)
+        stds = np.random.rand(*dims).astype(np.float32) + 0.1
+    return means, stds
+
+
+def load_invariant_data(dims: tuple[int, ...], file_path: str | None) -> np.ndarray:
+    """Simple method to load invariant data from zarr files or generate random numpy arrays.
+
+    Parameters
+    ----------
+    dims : tuple[int, ...]
+        Dimensions of the array to be loaded or generated.
+    file_path : str | None
+        Path to the directory containing the invariant data files. If None, random data will be generated.
+
+    Returns
+    -------
+    np.ndarray
+        Numpy array containing the invariant data.
+    """
+    if file_path is not None:
+        return xr.open_zarr(
+            file_path
+        ).values  # TODO: fix this after invariant data is available
+    else:
+        return np.random.rand(*dims).astype(np.float32)

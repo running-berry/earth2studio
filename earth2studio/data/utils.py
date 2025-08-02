@@ -111,7 +111,7 @@ def fetch_data(
 
         da = xr.concat(da, "lead_time")
 
-    logger.debug(f"da {source.__class__.__name__} summary:")
+    logger.debug(f"{source.__class__.__name__} summary:")
     logger.debug(da)
 
     return prep_data_array(
@@ -152,9 +152,6 @@ def prep_data_array(
         Tuple containing output tensor and coordinate OrderedDict
     """
 
-    logger.info(
-        f"Using {interp_method} interpolation method to interpolate to {interp_to}"
-    )
     # Initialize the output CoordSystem
     out_coords = OrderedDict()
     for dim in da.coords.dims:

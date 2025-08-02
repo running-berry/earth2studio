@@ -17,21 +17,15 @@
 import asyncio
 import concurrent.futures
 import functools
-import hashlib
 import os
 import pathlib
 import shutil
 import warnings
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-import gcsfs
-import nest_asyncio
 import numpy as np
 import s3fs
 import xarray as xr
-from fsspec.implementations.http import HTTPFileSystem
 from loguru import logger
 from tqdm.asyncio import tqdm
 
@@ -60,28 +54,18 @@ logger.add(lambda msg: tqdm.write(msg, end=""), colorize=True)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
-@dataclass
-class RWRFAsyncTask:
-    """Small helper struct for Async tasks"""
-
-    data_array_indices: tuple[int, int, int]
-    hrrr_file_uri: str
-    hrrr_byte_offset: int
-    hrrr_byte_length: int
-    hrrr_modifier: Callable
-
-
 @check_optional_dependencies()
 class RWRF:
-    """High-Resolution Rapid Refresh (HRRR) data source provides hourly North-American
-    weather analysis data developed by NOAA (used to initialize the HRRR forecast
-    model). This data source is provided on a Lambert conformal 3km grid at 1-hour
-    intervals. The spatial dimensionality of HRRR data is [1059, 1799].
+    """Radar Data Assimilation with WRFDA (RWRF) data source provides Taiwan weather analysis data developed by CWA. The radar observations possess high spatial resolution of approximately 1km and temporal resolutions of 5-10 minutes at a convective scale. The spatial dimensionality of RWRF data is [450, 450].
 
     Parameters
     ----------
-    source : str, optional
-        Data source to use ('aws', 'google', 'azure', 'nomads'), by default 'aws'
+    date_str : str, optional
+        Date string of RWRF data in the format "YYYY/MM/DD", by default "2019/08/03"
+    hr_str : int, optional
+        Hour string of RWRF data in the range of 0-23, by default 0
+    source_folder : str, optional
+        Path to the folder containing RWRF data, by default "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
     max_workers : int, optional
         Max works in async io thread pool. Only applied when using sync call function
         and will modify the default async loop if one exists, by default 24
@@ -100,32 +84,29 @@ class RWRF:
 
     Note
     ----
+    TODO fix the whole RWRF description
     Additional information on the data repository can be referenced here:
 
     - https://www.nco.ncep.noaa.gov/pmb/products/hrrr/
-    - https://rapidrefresh.noaa.gov/hrrr/
-    - https://aws.amazon.com/marketplace/pp/prodview-yd5ydptv3vuz2#resources
-    - https://hrrrzarr.s3.amazonaws.com/index.html
-    - https://console.cloud.google.com/marketplace/product/noaa-public/hrrr
     """
 
-    HRRR_BUCKET_NAME = "noaa-hrrr-bdp-pds"
-    MAX_BYTE_SIZE = 5000000
-
-    # HRRR_X = np.arange(1799)
     RWRF_X = np.arange(450)
-    # HRRR_Y = np.arange(1059)
     RWRF_Y = np.arange(450)
 
     def __init__(
         self,
-        source: str = "aws",
+        date_str: str = "2019/08/03",
+        hr_str: int = 0,
+        source_folder: str = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf",
         max_workers: int = 24,
         cache: bool = True,
         verbose: bool = True,
         async_timeout: int = 600,
     ):
-        self._source = source
+        dt = datetime.strptime(date_str, "%Y/%m/%d")
+        dt_str = dt.strftime(f"%Y-%m-%d_{str(hr_str).zfill(2)}")
+        self._path = f"{source_folder}/{dt_str}/wrfout_d01_{dt_str}_interp"
+
         self._cache = cache
         self._verbose = verbose
         self._max_workers = max_workers
@@ -133,107 +114,36 @@ class RWRF:
         self.lexicon = HRRRLexicon
         self.async_timeout = async_timeout
 
-        if self._source == "aws":
-            self.uri_prefix = "noaa-hrrr-bdp-pds"
-
-            # To update look at https://aws.amazon.com/marketplace/pp/prodview-yd5ydptv3vuz2#resources
+        if os.path.exists(self._path):
+            # TODO: fix the range after all RWRF data is available
             def _range(time: datetime) -> None:
-                # sfc goes back to 2016 for anl, limit based on pressure
-                # frst starts on on the same date pressure starts
-                if time < datetime(year=2018, month=7, day=12, hour=13):
+                if time < datetime(year=2019, month=8, day=3):
                     raise ValueError(
-                        f"Requested date time {time} needs to be after July 12th, 2018 13:00 for HRRR"
-                    )
-
-            self._history_range = _range
-        elif self._source == "google":
-            self.uri_prefix = "high-resolution-rapid-refresh"
-
-            # To update look at https://console.cloud.google.com/marketplace/product/noaa-public/hrrr
-            # Needs confirmation
-            def _range(time: datetime) -> None:
-                # sfc goes back to 2016 for anl, limit based on pressure
-                # frst starts on on the same date pressure starts
-                if time < datetime(year=2018, month=7, day=12, hour=13):
-                    raise ValueError(
-                        f"Requested date time {time} needs to be after July 12th, 2018 13:00 for HRRR"
-                    )
-
-            self._history_range = _range
-        elif self._source == "azure":
-            raise NotImplementedError(
-                "Azure data source not implemented yet, open an issue if needed"
-            )
-        elif self._source == "nomads":
-            # https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/
-            self.uri_prefix = (
-                "https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/"
-            )
-
-            def _range(time: datetime) -> None:
-                if time + timedelta(days=2) < datetime.today():
-                    raise ValueError(
-                        f"Requested date time {time} needs to be within past 2 days for HRRR nomads source"
+                        f"Requested date time {time} needs to be after August 3rd, 2019 00:00 for RWRF"
                     )
 
             self._history_range = _range
         else:
-            raise ValueError(f"Invalid HRRR source {self._source}")
-
-        try:
-            nest_asyncio.apply()  # Monkey patch asyncio to work in notebooks
-            loop = asyncio.get_running_loop()
-            loop.run_until_complete(self._async_init())
-        except RuntimeError:
-            # Else we assume that async calls will be used which in that case
-            # we will init the group in the call function when we have the loop
-            self.fs = None
-
-    async def _async_init(self) -> None:
-        """Async initialization of fsspec file stores
-
-        Note
-        ----
-        Async fsspec expects initialization inside of the execution loop
-        """
-        if self._source == "aws":
-            self.fs = s3fs.S3FileSystem(anon=True, client_kwargs={}, asynchronous=True)
-        elif self._source == "google":
-            fs = gcsfs.GCSFileSystem(
-                cache_timeout=-1,
-                token="anon",  # noqa: S106 # nosec B106
-                access="read_only",
-                block_size=8**20,
-            )
-            fs._loop = asyncio.get_event_loop()
-            self.fs = fs
-        elif self._source == "azure":
-            raise NotImplementedError(
-                "Azure data source not implemented yet, open an issue if needed"
-            )
-        elif self._source == "nomads":
-            # HTTP file system, tried FTP but didnt work
-            self.fs = HTTPFileSystem(asynchronous=True)
+            raise FileNotFoundError(f"Invalid RWRF source path {self._path}")
 
     def __call__(
         self,
         time: datetime | list[datetime] | TimeArray,
         variable: str | list[str] | VariableArray,
     ) -> xr.DataArray:
-        """Retrieve HRRR analysis data (lead time 0)
+        """Retrieve RWRF analysis data (lead time 0)
 
         Parameters
         ----------
         time : datetime | list[datetime] | TimeArray
             Timestamps to return data for (UTC).
         variable : str | list[str] | VariableArray
-            String, list of strings or array of strings that refer to variables to
-            return. Must be in the HRRR lexicon.
+            String, list of strings or array of strings that refer to variables to return. Must be in the RWRF lexicon.
 
         Returns
         -------
         xr.DataArray
-            HRRR weather data array
+            RWRF weather data array
         """
         try:
             loop = asyncio.get_event_loop()
@@ -247,13 +157,9 @@ class RWRF:
             concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers)
         )
 
-        if self.fs is None:
-            loop.run_until_complete(self._async_init())
-
-        # xr_array = loop.run_until_complete(
-        #     asyncio.wait_for(self.fetch(time, variable), timeout=self.async_timeout)
-        # )
-        xr_array = loop.run_until_complete(self.fetch(time, variable))
+        xr_array = loop.run_until_complete(
+            asyncio.wait_for(self.fetch(time, variable), timeout=self.async_timeout)
+        )
         return xr_array
 
     async def fetch(
@@ -276,12 +182,6 @@ class RWRF:
         xr.DataArray
             RWRF weather data array
         """
-        if self.fs is None:
-            raise ValueError(
-                "File store is not initialized! If you are calling this \
-            function directly make sure the data source is initialized inside the async \
-            loop!"
-            )
 
         time, variable = prep_data_inputs(time, variable)
         logger.info(f"Stormcast time: {time}")
@@ -291,12 +191,6 @@ class RWRF:
 
         # Make sure input time is valid
         self._validate_time(time)
-
-        # https://filesystem-spec.readthedocs.io/en/latest/async.html#using-from-async
-        if isinstance(self.fs, s3fs.S3FileSystem):
-            session = await self.fs.set_session()
-        else:
-            session = None
 
         # Generate RWRF lat-lon grid to append onto data array
         lat, lon = self.grid()
@@ -324,18 +218,7 @@ class RWRF:
             },
         )
 
-        date_str = "2019/08/03"
-        hr_str = str(0).zfill(2)
-
-        dt = datetime.strptime(date_str, "%Y/%m/%d")
-        fmt_dt_str = dt.strftime(f"%Y-%m-%d_{int(hr_str):02d}")
-        folder = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
-        filepath = f"{folder}/{fmt_dt_str}/wrfout_d01_{fmt_dt_str}_interp"
-
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-
-        ds = xr.open_dataset(filepath)
+        ds = xr.open_dataset(self._path)
 
         var_map = {
             "t2m": "T2",
@@ -345,15 +228,12 @@ class RWRF:
 
         # # Loop through each requested variable and fill the xr_array
         for j, var in enumerate(variable):
-            # Check if the variable exists in the NetCDF file
             if var in var_map:
-                # Extract the data and assign it to the correct slice
-                # This assumes the WRF data has dimensions that match rwrf_y, rwrf_x
                 data_slice = ds.variables[var_map.get(var, var)].isel(Time=0).values
                 xr_array[0, 0, j, :, :] = data_slice
             else:
                 logger.warning(
-                    f"Variable '{var}' not found in {filepath}. Filling with random numbers."
+                    f"Variable '{var}' not found in {self._path}. Filling with random numbers."
                 )
                 xr_array[0, 0, j, :, :] = np.random.rand(
                     len(self.RWRF_Y), len(self.RWRF_X)
@@ -362,165 +242,12 @@ class RWRF:
         if not self._cache:
             shutil.rmtree(self.cache)
 
-        if session:
-            await session.close()
-
         xr_array = xr_array.isel(lead_time=0)
         del xr_array.coords["lead_time"]
         return xr_array
 
-    async def _create_tasks(
-        self, time: list[datetime], lead_time: list[timedelta], variable: list[str]
-    ) -> list[RWRFAsyncTask]:
-        """Create download tasks, each corresponding to one grib byte range
-
-        Parameters
-        ----------
-        times : list[datetime]
-            Timestamps to be downloaded (UTC).
-        variables : list[str]
-            List of variables to be downloaded.
-
-        Returns
-        -------
-        list[dict]
-            List of download tasks
-        """
-        tasks: list[RWRFAsyncTask] = []  # group pressure-level variables
-
-        # Start with fetching all index files for each time / lead time
-        # TODO: Update so only needed products (can tell from parsing variables), for
-        # now fetch all index files because its cheap and easier
-        products = ["wrfsfc", "wrfprs", "wrfnat"]
-        args = [
-            self._grib_index_uri(t, lt, p)
-            for t in time
-            for lt in lead_time
-            for p in products
-        ]
-        func_map = map(self._fetch_index, args)
-        results = await tqdm.gather(
-            *func_map, desc="Fetching HRRR index files", disable=True
-        )
-        for i, t in enumerate(time):
-            for j, lt in enumerate(lead_time):
-                # Get index file dictionaries for each possible product
-                index_files = {p: results.pop(0) for p in products}
-                for k, v in enumerate(variable):
-                    try:
-                        hrrr_name_str, modifier = self.lexicon[v]  # type: ignore
-                        hrrr_name = hrrr_name_str.split("::") + ["", ""]
-                        product = hrrr_name[0]
-                        variable_name = hrrr_name[1]
-                        level = hrrr_name[2]
-                        forecastvld = hrrr_name[3]
-                        index = hrrr_name[4]
-
-                        # Create index key to find byte range
-                        hrrr_key = f"{variable_name}::{level}"
-                        if forecastvld:
-                            hrrr_key = f"{hrrr_key}::{forecastvld}"
-                        else:
-                            if lt.total_seconds() == 0:
-                                hrrr_key = f"{hrrr_key}::anl"
-                            else:
-                                hrrr_key = f"{hrrr_key}::{int(lt.total_seconds() // 3600):d} hour fcst"
-                        if index and index.isnumeric():
-                            hrrr_key = index
-
-                        # Special cases
-                        # could do this better with templates, but this is single instance
-                        if variable_name == "APCP":
-                            hours = int(lt.total_seconds() // 3600)
-                            hrrr_key = f"{variable_name}::{level}::{hours - 1:d}-{hours:d} hour acc fcst"
-
-                    except KeyError as e:
-                        logger.error(
-                            f"variable id {variable} not found in HRRR lexicon"
-                        )
-                        raise e
-
-                    # Get byte range from index
-                    byte_offset = None
-                    byte_length = None
-                    for key, value in index_files[product].items():
-                        if hrrr_key in key:
-                            byte_offset = value[0]
-                            byte_length = value[1]
-                            break
-
-                    if byte_length is None or byte_offset is None:
-                        logger.warning(
-                            f"Variable {v} not found in index file for time {t} at {lt}, values will be unset"
-                        )
-                        continue
-
-                    tasks.append(
-                        RWRFAsyncTask(
-                            data_array_indices=(i, j, k),
-                            hrrr_file_uri=self._grib_uri(t, lt, product),
-                            hrrr_byte_offset=byte_offset,
-                            hrrr_byte_length=byte_length,
-                            hrrr_modifier=modifier,
-                        )
-                    )
-        return tasks
-
-    async def fetch_wrapper(
-        self,
-        task: RWRFAsyncTask,
-        xr_array: xr.DataArray,
-    ) -> xr.DataArray:
-        """Small wrapper to pack arrays into the DataArray"""
-        out = await self.fetch_array(
-            task.hrrr_file_uri,
-            task.hrrr_byte_offset,
-            task.hrrr_byte_length,
-            task.hrrr_modifier,
-        )
-        i, j, k = task.data_array_indices
-        xr_array[i, j, k] = out
-
-    async def fetch_array(
-        self,
-        grib_uri: str,
-        byte_offset: int,
-        byte_length: int,
-        modifier: Callable,
-    ) -> np.ndarray:
-        """Fetch HRRR data array. This will first fetch the index file to get byte range
-        of the needed data, fetch the respective grib files and lastly combining grib
-        files into single data array.
-
-        Parameters
-        ----------
-        time : datetime
-            Date time to fetch
-        lead_time : timedelta
-            Forecast lead time to fetch
-        variables : list[str]
-            Variables to fetch
-
-        Returns
-        -------
-        xr.DataArray
-            FS data array for given time and lead time
-        """
-        logger.debug(f"Fetching HRRR grib file: {grib_uri} {byte_offset}-{byte_length}")
-        # Download the grib file to cache
-        grib_file = await self._fetch_remote_file(
-            grib_uri,
-            byte_offset=byte_offset,
-            byte_length=byte_length,
-        )
-        # Open into xarray data-array
-        da = xr.open_dataarray(
-            grib_file, engine="cfgrib", backend_kwargs={"indexpath": ""}
-        )
-        return modifier(da.values)
-
     def _validate_time(self, times: list[datetime]) -> None:
-        """Verify if date time is valid for HRRR based on offline knowledge
+        """Verify if date time is valid for RWRF based on offline knowledge
 
         Parameters
         ----------
@@ -528,124 +255,69 @@ class RWRF:
             list of date times to fetch data
         """
         for time in times:
+            # TODO: fix this method after knowing RWRF intervals
             if not (time - datetime(1900, 1, 1)).total_seconds() % 3600 == 0:
                 raise ValueError(
                     f"Requested date time {time} needs to be 1 hour interval for HRRR"
                 )
-            # Check history range for given source
+            # Check history range for given path
             self._history_range(time)
 
-    async def _fetch_index(self, index_uri: str) -> dict[str, tuple[int, int]]:
-        """Fetch HRRR atmospheric index file
-
-        Parameters
-        ----------
-        index_uri : str
-            URI to grib index file to download
+    def get_global_attrs(
+        self,
+    ) -> dict:
+        """Get the global attributes of the RWRF dataset
 
         Returns
         -------
-        dict[str, tuple[int, int]]
-            Dictionary of HRRR vairables (byte offset, byte length)
+        dict
+            Dictionary of global attributes from the dataset.
         """
-        # Grab index file
-        try:
-            index_file = await self._fetch_remote_file(index_uri)
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"The specified data index, {index_uri}, does not exist. Data seems to be missing."
-            )
-        with open(index_file) as file:
-            index_lines = [line.rstrip() for line in file]
+        ds = xr.open_dataset(self._path, decode_coords=True, mask_and_scale=False)
+        logger.debug("RWRF dataset global attributes:")
+        for k, v in ds.attrs.items():
+            logger.debug(f"{k}: {v}")
 
-        index_table = {}
-        # Note we actually drop the last variable here because its easier (SBT114)
-        # GEFS has a solution for this if needed that involves appending a dummy line
-        # Example of row: "1:0:d=2021111823:REFC:entire atmosphere:795 min fcst:"
-        for i, line in enumerate(index_lines[:-1]):
-            lsplit = line.split(":")
-            if len(lsplit) < 7:
-                continue
+        return ds.attrs
 
-            nlsplit = index_lines[i + 1].split(":")
-            byte_length = int(nlsplit[1]) - int(lsplit[1])
-            byte_offset = int(lsplit[1])
-            key = f"{lsplit[0]}::{lsplit[3]}::{lsplit[4]}::{lsplit[5]}"
-            if byte_length > self.MAX_BYTE_SIZE:
-                raise ValueError(
-                    f"Byte length, {byte_length}, of variable {key} larger than safe threshold of {self.MAX_BYTE_SIZE}"
-                )
+    def get_lat_lon_bound(self) -> dict[str, tuple[float, float]]:
+        """Get the NW, SW, SE, NE latitude and longitude corners of the RWRF dataset.
 
-            index_table[key] = (byte_offset, byte_length)
+        Returns
+        -------
+        dict[str, tuple[float, float]]
+            Dictionary with keys 'NW', 'SW', 'SE', 'NE' and values (lat, lon)
+        """
+        ds = xr.open_dataset(self._path, decode_coords=True, mask_and_scale=False)
+        lat = ds.variables["XLAT"][0, ...]
+        lon = ds.variables["XLONG"][0, ...]
 
-        return index_table
-
-    async def _fetch_remote_file(
-        self, path: str, byte_offset: int = 0, byte_length: int | None = None
-    ) -> str:
-        """Fetches remote file into cache"""
-        if self.fs is None:
-            raise ValueError("File system is not initialized")
-
-        sha = hashlib.sha256((path + str(byte_offset)).encode())
-        filename = sha.hexdigest()
-        cache_path = os.path.join(self.cache, filename)
-
-        if not pathlib.Path(cache_path).is_file():
-            if self.fs.async_impl:
-                if byte_length:
-                    byte_length = int(byte_offset + byte_length)
-                data = await self.fs._cat_file(path, start=byte_offset, end=byte_length)
-            else:
-                data = await asyncio.to_thread(
-                    self.fs.read_block, path, offset=byte_offset, length=byte_length
-                )
-            with open(cache_path, "wb") as file:
-                await asyncio.to_thread(file.write, data)
-
-        return cache_path
-
-    def _grib_uri(
-        self, time: datetime, lead_time: timedelta, product: str = "wrfsfc"
-    ) -> str:
-        """Generates the URI for HRRR grib files"""
-        lead_hour = int(lead_time.total_seconds() // 3600)
-        file_name = f"hrrr.{time.year}{time.month:0>2}{time.day:0>2}/conus/"
-        file_name = os.path.join(
-            file_name, f"hrrr.t{time.hour:0>2}z.{product}f{lead_hour:02d}.grib2"
-        )
-        return os.path.join(self.uri_prefix, file_name)
-
-    def _grib_index_uri(
-        self, time: datetime, lead_time: timedelta, product: str
-    ) -> str:
-        """Generates the URI for HRRR index grib files"""
-        # https://nomads.ncep.noaa.gov/pub/data/nccf/com/hrrr/prod/
-        lead_hour = int(lead_time.total_seconds() // 3600)
-        file_name = f"hrrr.{time.year}{time.month:0>2}{time.day:0>2}/conus/"
-        file_name = os.path.join(
-            file_name, f"hrrr.t{time.hour:0>2}z.{product}f{lead_hour:02d}.grib2.idx"
-        )
-        return os.path.join(self.uri_prefix, file_name)
+        corners = {
+            "SW": (lat[0, 0].item(), lon[0, 0].item()),
+            "NW": (lat[-1, 0].item(), lon[-1, 0].item()),
+            "NE": (lat[-1, -1].item(), lon[-1, -1].item()),
+            "SE": (lat[0, -1].item(), lon[0, -1].item()),
+        }
+        logger.debug(f"RWRF corners: {corners}")
+        return corners
 
     @property
     def cache(self) -> str:
         """Return appropriate cache location."""
-        cache_location = os.path.join(datasource_cache_root(), "hrrr")
+        cache_location = os.path.join(datasource_cache_root(), "rwrf")
         if not self._cache:
-            cache_location = os.path.join(cache_location, "tmp_hrrr")
+            cache_location = os.path.join(cache_location, "tmp_rwrf")
         return cache_location
 
     @classmethod
     def grid(cls) -> tuple[np.array, np.array]:
-        """Generates the RWRF lambert conformal projection grid coordinates. Creates the
-        RWRF grid using single parallel lambert conformal mapping
+        """Generates the RWRF lambert conformal projection grid coordinates. Creates the RWRF grid using a secant (parallel) Lambert conformal conic projection with two standard parallels for accurate mapping over Taiwan.
 
         Note
         ----
         For more information about the RWRF grid see:
 
-        - examples/09-1_stormcast_example.py:170
+        - examples/09-1_stormcast_example.py:135
 
         Returns
         -------
@@ -655,6 +327,7 @@ class RWRF:
         # lon_0, lat_0 is the center of the grid
         # lat_1, lat_2 is the standard parallel
         # a, b is radius of globe 6371229
+        # RWRF().get_global_attrs()  # Print global attributes for debugging
         p1 = pyproj.CRS(
             "proj=lcc lon_0=120.0 lat_0=21.494176864624023 lat_1=10.0 lat_2=40.0 a=6371229 b=6371229"
         )
@@ -665,8 +338,23 @@ class RWRF:
         # Start with getting grid bounds based on lat / lon box (SW-NW-NE-SE)
         # Ground-truth corner coordinates from the RWRF dataset [SW, NW, NE, SE]
         # Extracted from the provided XLAT and XLONG variables.
-        lat = np.array([19.548283, 27.897097, 27.844585, 19.49942])
-        lon = np.array([116.37149, 116.11554, 125.56778, 125.20111])
+        # RWRF().get_lat_lon_bound()  # Print lat/lon bounds for debugging
+        lat = np.array(
+            [
+                19.548282623291016,
+                27.897096633911133,
+                27.844585418701172,
+                19.499420166015625,
+            ]
+        )
+        lon = np.array(
+            [
+                116.37149047851562,
+                116.11553955078125,
+                125.56777954101562,
+                125.20111083984375,
+            ]
+        )
 
         # Transform lat/lon corners to projected easting/northing coordinates
         easting, northing = transformer.transform(lat, lon)
@@ -680,6 +368,36 @@ class RWRF:
         lat, lon = itransformer.transform(E, N)  # Transform the projected grid back
         lon = np.where(lon < 0, lon + 360, lon)
         return lat, lon
+
+    @classmethod
+    def get_corresponding_indices(
+        cls, latitude: float, longitude: float, resolution: tuple[int, int] = (32, 32)
+    ) -> tuple[int, int, int, int]:
+        """Get the corresponding indices for the given latitude and longitude.
+
+        Parameters
+        ----------
+        latitude : float
+            Latitude of the point.
+        longitude : float
+            Longitude of the point.
+
+        Returns
+        -------
+        tuple[int, int, int, int]
+            A tuple containing the minimum and maximum indices for corresponding latitude and longitude in the RWRF grid.
+        """
+
+        rwrf_lat, rwrf_lon = cls.grid()
+
+        dist = np.sqrt((rwrf_lat - latitude) ** 2 + (rwrf_lon - longitude) ** 2)
+        y_index, x_index = np.unravel_index(np.argmin(dist), dist.shape)
+        return (
+            y_index - resolution[0] // 2,
+            y_index + resolution[0] // 2,
+            x_index - resolution[1] // 2,
+            x_index + resolution[1] // 2,
+        )
 
     @classmethod
     def available(

@@ -37,7 +37,7 @@ from earth2studio.utils.imports import (
     OptionalDependencyFailure,
     check_optional_dependencies,
 )
-from earth2studio.utils.metadata import create_dummy_metadata
+from earth2studio.utils.metadata import create_metadata
 from earth2studio.utils.type import CoordSystem
 
 try:
@@ -558,8 +558,8 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         means: torch.Tensor,
         stds: torch.Tensor,
         invariants: torch.Tensor,
-        rwrf_lat_lim: tuple[int, int] = (279, 311),
-        rwrf_lon_lim: tuple[int, int] = (218, 250),
+        rwrf_lat_lim: tuple[int, int] = (276, 308),
+        rwrf_lon_lim: tuple[int, int] = (243, 275),
         variables: np.array = np.array(VARIABLES),
         conditioning_means: torch.Tensor | None = None,
         conditioning_stds: torch.Tensor | None = None,
@@ -576,22 +576,6 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         self.sampler_args = sampler_args
 
         rwrf_lat, rwrf_lon = RWRF.grid()
-        # lat_min, lat_max = 21, 25
-        # lon_min, lon_max = 121, 125
-
-        # y_indices, x_indices = np.where(
-        #     (rwrf_lat >= lat_min)
-        #     & (rwrf_lat <= lat_max)
-        #     & (rwrf_lon >= lon_min)
-        #     & (rwrf_lon <= lon_max)
-        # )
-        # # Get min/max for slicing
-        # y_min, y_max = y_indices.min(), y_indices.max()
-        # x_min, x_max = x_indices.min(), x_indices.max()
-        # print("y_min, y_max, x_min, x_max", y_min, y_max, x_min, x_max)
-        # import sys
-
-        # sys.exit(0)
         self.lat = rwrf_lat[
             rwrf_lat_lim[0] : rwrf_lat_lim[1], rwrf_lon_lim[0] : rwrf_lon_lim[1]
         ]
@@ -680,12 +664,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         """Load prognostic package"""
         package = Package(
             "/home/master/13/dczy/stormcast-v1-era5-hrrr_v1.0.1",
-            # "/home/master/13/dczy/awerawe",
             cache=False,
-            # cache_options={
-            #     "cache_storage": Package.default_cache("stormcast"),
-            #     "same_names": True,
-            # },
         )
         return package
 
@@ -735,7 +714,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         # Load metadata: means, stds, grid
         # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
         # metadata = xr.open_zarr(store, zarr_format=2)
-        metadata = create_dummy_metadata(
+        metadata = create_metadata(
             variable=["t2m"],
             conditioning_variable=["t2m"],
             invariant=[],
@@ -744,7 +723,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         )
 
         print("data", metadata)
-        # prints
+        # Original Metadata prints
         # data <xarray.Dataset> Size: 5MB
         # Dimensions:                (conditioning_variable: 26, invariant: 2, y: 512,
         #                             x: 640, variable: 99)

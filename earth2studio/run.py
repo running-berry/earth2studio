@@ -97,6 +97,10 @@ def deterministic(
         interp_to = None
         interp_method = "nearest"
 
+    logger.info(
+        f"Using {interp_method} interpolation method to interpolate to {interp_to}"
+    )
+
     x, coords = fetch_data(
         source=data,
         time=time,

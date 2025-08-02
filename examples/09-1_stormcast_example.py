@@ -76,36 +76,16 @@ from dotenv import load_dotenv
 
 load_dotenv()  # TODO: make common example prep function
 
-# from netCDF4 import Dataset
-
-# def load_wrf_interp_nc(date_str: str, hr_str: str) -> Dataset:
-#     dt = datetime.strptime(date_str, "%Y/%m/%d")
-#     fmt_dt_str = dt.strftime(f"%Y-%m-%d_{int(hr_str):02d}")
-#     folder = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
-#     filepath = f"{folder}/{fmt_dt_str}/wrfout_d01_{fmt_dt_str}_interp"
-#     if not os.path.exists(filepath):
-#         raise FileNotFoundError(f"File not found: {filepath}")
-#     ds = Dataset(filepath, mode="r")
-#     return ds
-
-# ds = load_wrf_interp_nc("2019/08/03", str(23).zfill(2))
-# logger.info(f"latitude: {ds.variables['XLAT'][:]}, longitude: {ds.variables['XLONG'][:]}")
-
-# import sys
-# sys.exit(0)
-
-from earth2studio.data import ARCO, HRRR, RWRF
+from earth2studio.data import ARCO, RWRF
 from earth2studio.io import ZarrBackend
 from earth2studio.models.px import StormCastTaiwan
 
-# Load the default model package which downloads the check point from NGC
-# Use the default conditioning data source GFS_FX
+# Load the default model package which uses local checkpoint
 package = StormCastTaiwan.load_default_package()
 model = StormCastTaiwan.load_model(package, ARCO())
 
 # Create the data source
 data = RWRF()
-# data = HRRR()
 
 # Create the IO handler, store in memory
 io = ZarrBackend()
@@ -153,7 +133,9 @@ step = 4  # lead time = 1 hr
 plt.close("all")
 
 # Create a correct Lambert Conformal projection
-# The parameters below are derived from the RWRF
+# The parameters below are derived from the RWRF global attributes:
+# data.get_global_attrs()  # Print global attributes for debugging
+# ...
 # CEN_LAT: 23.764400482177734
 # CEN_LON: 120.81399536132812
 # TRUELAT1: 10.0
@@ -167,6 +149,7 @@ plt.close("all")
 # JULDAY: 215
 # MAP_PROJ: 1
 # MAP_PROJ_CHAR: Lambert Conformal
+# ...
 projection = ccrs.LambertConformal(
     central_longitude=120.0,
     central_latitude=21.494176864624023,
