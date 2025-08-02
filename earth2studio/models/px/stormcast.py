@@ -701,13 +701,13 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         regression = PhysicsNemoModule.from_checkpoint(
             # package.resolve("StormCastUNet.0.0.mdlus")
             package.resolve(
-                "/home/master/14/andrewhsu/projects/earth2studio/cache/rundir_reg_0710_24hrs/stormcast-training/0/checkpoints_regression/StormCastUNet.0.16000.mdlus"
+                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_reg_0710_24hrs/stormcast-training/0/checkpoints_regression/StormCastUNet.0.16000.mdlus"
             )
         )
         diffusion = PhysicsNemoModule.from_checkpoint(
             # package.resolve("EDMPrecond.0.0.mdlus")
             package.resolve(
-                "/home/master/14/andrewhsu/projects/earth2studio/cache/rundir_dif_0710_24hrs/diffusion/0/checkpoints_diffusion/EDMPrecond.0.16000.mdlus"
+                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_dif_0710_24hrs/diffusion/0/checkpoints_diffusion/EDMPrecond.0.16000.mdlus"
             )
         )
 
