@@ -153,10 +153,24 @@ step = 4  # lead time = 1 hr
 plt.close("all")
 
 # Create a correct Lambert Conformal projection
+# The parameters below are derived from the RWRF
+# CEN_LAT: 23.764400482177734
+# CEN_LON: 120.81399536132812
+# TRUELAT1: 10.0
+# TRUELAT2: 40.0
+# MOAD_CEN_LAT: 21.494176864624023
+# STAND_LON: 120.0
+# POLE_LAT: 90.0
+# POLE_LON: 0.0
+# GMT: 0.0
+# JULYR: 2019
+# JULDAY: 215
+# MAP_PROJ: 1
+# MAP_PROJ_CHAR: Lambert Conformal
 projection = ccrs.LambertConformal(
-    central_longitude=126,
-    central_latitude=23,
-    standard_parallels=(23, 23),
+    central_longitude=120.0,
+    central_latitude=21.494176864624023,
+    standard_parallels=(10, 40),
     globe=ccrs.Globe(semimajor_axis=6371229, semiminor_axis=6371229),
 )
 

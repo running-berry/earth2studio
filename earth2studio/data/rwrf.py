@@ -178,7 +178,7 @@ class RWRF:
 
             self._history_range = _range
         else:
-            raise ValueError(f"Invalid HRRR source { self._source}")
+            raise ValueError(f"Invalid HRRR source {self._source}")
 
         try:
             nest_asyncio.apply()  # Monkey patch asyncio to work in notebooks
@@ -299,7 +299,7 @@ class RWRF:
             session = None
 
         # Generate RWRF lat-lon grid to append onto data array
-        lat, lon = self.grid() #? fix this grid coordinates
+        lat, lon = self.grid()
         # Note, this could be more memory efficient and avoid pre-allocation of the array
         # but this is much much cleaner to deal with
         xr_array = xr.DataArray(
@@ -323,10 +323,10 @@ class RWRF:
                 "lon": (("rwrf_y", "rwrf_x"), lon),
             },
         )
-        
+
         date_str = "2019/08/03"
         hr_str = str(0).zfill(2)
-        
+
         dt = datetime.strptime(date_str, "%Y/%m/%d")
         fmt_dt_str = dt.strftime(f"%Y-%m-%d_{int(hr_str):02d}")
         folder = "/home/master/14/andrewhsu/projects/physicsnemo/dev/data/rwrf"
@@ -336,13 +336,13 @@ class RWRF:
             raise FileNotFoundError(f"File not found: {filepath}")
 
         ds = xr.open_dataset(filepath)
-        
+
         var_map = {
             "t2m": "T2",
             "u10m": "umet10",
             # add any others here...
         }
-        
+
         # # Loop through each requested variable and fill the xr_array
         for j, var in enumerate(variable):
             # Check if the variable exists in the NetCDF file
@@ -352,8 +352,12 @@ class RWRF:
                 data_slice = ds.variables[var_map.get(var, var)].isel(Time=0).values
                 xr_array[0, 0, j, :, :] = data_slice
             else:
-                logger.warning(f"Variable '{var}' not found in {filepath}. Filling with random numbers.")
-                xr_array[0, 0, j, :, :] = np.random.rand(len(self.RWRF_Y), len(self.RWRF_X))
+                logger.warning(
+                    f"Variable '{var}' not found in {filepath}. Filling with random numbers."
+                )
+                xr_array[0, 0, j, :, :] = np.random.rand(
+                    len(self.RWRF_Y), len(self.RWRF_X)
+                )
 
         if not self._cache:
             shutil.rmtree(self.cache)
@@ -428,7 +432,7 @@ class RWRF:
                         # could do this better with templates, but this is single instance
                         if variable_name == "APCP":
                             hours = int(lt.total_seconds() // 3600)
-                            hrrr_key = f"{variable_name}::{level}::{hours-1:d}-{hours:d} hour acc fcst"
+                            hrrr_key = f"{variable_name}::{level}::{hours - 1:d}-{hours:d} hour acc fcst"
 
                     except KeyError as e:
                         logger.error(
@@ -634,14 +638,14 @@ class RWRF:
 
     @classmethod
     def grid(cls) -> tuple[np.array, np.array]:
-        """Generates the HRRR lambert conformal projection grid coordinates. Creates the
-        HRRR grid using single parallel lambert conformal mapping
+        """Generates the RWRF lambert conformal projection grid coordinates. Creates the
+        RWRF grid using single parallel lambert conformal mapping
 
         Note
         ----
-        For more information about the HRRR grid see:
+        For more information about the RWRF grid see:
 
-        - https://ntrs.nasa.gov/api/citations/20160009371/downloads/20160009371.pdf
+        - examples/09-1_stormcast_example.py:170
 
         Returns
         -------
@@ -652,7 +656,7 @@ class RWRF:
         # lat_1, lat_2 is the standard parallel
         # a, b is radius of globe 6371229
         p1 = pyproj.CRS(
-            "proj=lcc lon_0=121.75 lat_0=23.4 lat_1=22 lat_2=25 a=6371229 b=6371229"
+            "proj=lcc lon_0=120.0 lat_0=21.494176864624023 lat_1=10.0 lat_2=40.0 a=6371229 b=6371229"
         )
         p2 = pyproj.CRS("latlon")
         transformer = pyproj.Transformer.from_proj(p2, p1)
@@ -661,12 +665,8 @@ class RWRF:
         # Start with getting grid bounds based on lat / lon box (SW-NW-NE-SE)
         # Ground-truth corner coordinates from the RWRF dataset [SW, NW, NE, SE]
         # Extracted from the provided XLAT and XLONG variables.
-        lat = np.array(
-            [19.548283, 27.897097, 27.844585, 19.49942]
-        )
-        lon = np.array(
-            [116.37149, 116.11554, 125.56778, 125.20111]
-        )
+        lat = np.array([19.548283, 27.897097, 27.844585, 19.49942])
+        lon = np.array([116.37149, 116.11554, 125.56778, 125.20111])
 
         # Transform lat/lon corners to projected easting/northing coordinates
         easting, northing = transformer.transform(lat, lon)
@@ -677,7 +677,7 @@ class RWRF:
             np.linspace(northing[0], northing[1], ny),
         )
 
-        lat, lon = itransformer.transform(E, N) # Transform the projected grid back
+        lat, lon = itransformer.transform(E, N)  # Transform the projected grid back
         lon = np.where(lon < 0, lon + 360, lon)
         return lat, lon
 

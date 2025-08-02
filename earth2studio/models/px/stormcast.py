@@ -534,11 +534,9 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
     invariants : torch.Tensor
         Static invariant  quantities
     rwrf_lat_lim : tuple[int, int], optional
-        RWRF grid latitude limits, defaults to be the StormCastV1 region in central
-        United States, by default (273, 785)
+        RWRF grid latitude limits, defaults to be the StormCast region around National Taiwan University (25.0173° N, 121.5398° E), which corresponds to indices (295, 234) on the RWRF grid, by default (279, 311)
     rwrf_lon_lim : tuple[int, int], optional
-        RWRF grid longitude limits, defaults to be the StormCastV1 region in central
-        United States,, by default (579, 1219)
+        RWRF grid longitude limits, defaults to be the StormCast region around National Taiwan University (25.0173° N, 121.5398° E), which corresponds to indices (295, 234) on the RWRF grid, by default (218, 250)
     variables : np.array, optional
         High-resolution variables, by default np.array(VARIABLES)
     conditioning_means : torch.Tensor | None, optional
@@ -560,8 +558,8 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         means: torch.Tensor,
         stds: torch.Tensor,
         invariants: torch.Tensor,
-        rwrf_lat_lim: tuple[int, int] = (15, 47),
-        rwrf_lon_lim: tuple[int, int] = (110, 142),
+        rwrf_lat_lim: tuple[int, int] = (279, 311),
+        rwrf_lon_lim: tuple[int, int] = (218, 250),
         variables: np.array = np.array(VARIABLES),
         conditioning_means: torch.Tensor | None = None,
         conditioning_stds: torch.Tensor | None = None,
@@ -578,6 +576,22 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         self.sampler_args = sampler_args
 
         rwrf_lat, rwrf_lon = RWRF.grid()
+        # lat_min, lat_max = 21, 25
+        # lon_min, lon_max = 121, 125
+
+        # y_indices, x_indices = np.where(
+        #     (rwrf_lat >= lat_min)
+        #     & (rwrf_lat <= lat_max)
+        #     & (rwrf_lon >= lon_min)
+        #     & (rwrf_lon <= lon_max)
+        # )
+        # # Get min/max for slicing
+        # y_min, y_max = y_indices.min(), y_indices.max()
+        # x_min, x_max = x_indices.min(), x_indices.max()
+        # print("y_min, y_max, x_min, x_max", y_min, y_max, x_min, x_max)
+        # import sys
+
+        # sys.exit(0)
         self.lat = rwrf_lat[
             rwrf_lat_lim[0] : rwrf_lat_lim[1], rwrf_lon_lim[0] : rwrf_lon_lim[1]
         ]
