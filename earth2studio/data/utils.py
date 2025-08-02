@@ -111,6 +111,9 @@ def fetch_data(
 
         da = xr.concat(da, "lead_time")
 
+    logger.debug(f"{source.__class__.__name__} summary:")
+    logger.debug(da)
+
     return prep_data_array(
         da,
         device=device,

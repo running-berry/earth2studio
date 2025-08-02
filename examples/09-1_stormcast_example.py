@@ -76,21 +76,16 @@ from dotenv import load_dotenv
 
 load_dotenv()  # TODO: make common example prep function
 
-from earth2studio.data import HRRR
+from earth2studio.data import ARCO, RWRF
 from earth2studio.io import ZarrBackend
-from earth2studio.models.px import StormCast
-from earth2studio.models.auto import Package
+from earth2studio.models.px import StormCastTaiwan
 
-# Load the default model package which downloads the check point from NGC
-# Use the default conditioning data source GFS_FX
-package = Package(
-    "/home/master/13/dczy/stormcast-v1-era5-hrrr_v1.0.1",
-    cache=False,
-)
-model = StormCast.load_model(package)
+# Load the default model package which uses local checkpoint
+package = StormCastTaiwan.load_default_package()
+model = StormCastTaiwan.load_model(package, ARCO())
 
 # Create the data source
-data = HRRR()
+data = RWRF()
 
 # Create the IO handler, store in memory
 io = ZarrBackend()
@@ -109,8 +104,10 @@ io = ZarrBackend()
 import earth2studio.run as run
 
 nsteps = 4
-today = datetime.today() - timedelta(days=1)
-date = today.isoformat().split("T")[0]
+dt = datetime(
+    2023, 10, 4
+)  #! Requested date time needs to be after January 1st, 2021 for GFS on AWS
+date = dt.isoformat().split("T")[0]
 io = run.deterministic([date], nsteps, model, data, io)
 
 print(io.root.tree())
@@ -136,10 +133,27 @@ step = 4  # lead time = 1 hr
 plt.close("all")
 
 # Create a correct Lambert Conformal projection
+# The parameters below are derived from the RWRF global attributes:
+# data.get_global_attrs()  # Print global attributes for debugging
+# ...
+# CEN_LAT: 23.764400482177734
+# CEN_LON: 120.81399536132812
+# TRUELAT1: 10.0
+# TRUELAT2: 40.0
+# MOAD_CEN_LAT: 21.494176864624023
+# STAND_LON: 120.0
+# POLE_LAT: 90.0
+# POLE_LON: 0.0
+# GMT: 0.0
+# JULYR: 2019
+# JULDAY: 215
+# MAP_PROJ: 1
+# MAP_PROJ_CHAR: Lambert Conformal
+# ...
 projection = ccrs.LambertConformal(
-    central_longitude=262.5,
-    central_latitude=38.5,
-    standard_parallels=(38.5, 38.5),
+    central_longitude=120.0,
+    central_latitude=21.494176864624023,
+    standard_parallels=(10, 40),
     globe=ccrs.Globe(semimajor_axis=6371229, semiminor_axis=6371229),
 )
 
@@ -152,16 +166,11 @@ im = ax.pcolormesh(
     model.lat,
     io[variable][0, step],
     transform=ccrs.PlateCarree(),
-    cmap="Spectral_r",
-)
-
-# Set state lines
-ax.add_feature(
-    cartopy.feature.STATES.with_scale("50m"), linewidth=0.5, edgecolor="black", zorder=2
+    cmap="RdBu_r",
 )
 
 # Set title
-ax.set_title(f"{forecast} - Lead time: {step}hrs")
+ax.set_title(f"{forecast} {variable} - Lead time: {step}hrs")
 
 # Add coastlines and gridlines
 ax.coastlines()

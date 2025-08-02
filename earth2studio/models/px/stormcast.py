@@ -24,7 +24,7 @@ import torch
 import xarray as xr
 import zarr
 
-from earth2studio.data import GFS_FX, HRRR, DataSource, ForecastSource, fetch_data
+from earth2studio.data import GFS_FX, HRRR, RWRF, DataSource, ForecastSource, fetch_data
 from earth2studio.models.auto import AutoModelMixin, Package
 from earth2studio.models.batch import batch_coords, batch_func
 from earth2studio.models.dx.base import DiagnosticModel
@@ -37,6 +37,7 @@ from earth2studio.utils.imports import (
     OptionalDependencyFailure,
     check_optional_dependencies,
 )
+from earth2studio.utils.metadata import create_metadata
 from earth2studio.utils.type import CoordSystem
 
 try:
@@ -293,8 +294,30 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
         metadata = xr.open_zarr(store, zarr_format=2)
 
+        # print("data", metadata)
+        # prints
+        # data <xarray.Dataset> Size: 5MB
+        # Dimensions:                (conditioning_variable: 26, invariant: 2, y: 512,
+        #                             x: 640, variable: 99)
+        # Coordinates:
+        #   * conditioning_variable  (conditioning_variable) <U5 520B 'u10m' ... 'q250'
+        #   * invariant              (invariant) <U9 72B 'lsm' 'orography'
+        #     lat                    (y, x) float32 1MB dask.array<chunksize=(256, 320), meta=np.ndarray>
+        #     lon                    (y, x) float32 1MB dask.array<chunksize=(256, 320), meta=np.ndarray>
+        #   * variable               (variable) <U5 2kB 'u10m' 'v10m' ... 'p20hl' 'refc'
+        #   * x                      (x) int64 5kB 0 1 2 3 4 5 ... 634 635 636 637 638 639
+        #   * y                      (y) int64 4kB 0 1 2 3 4 5 ... 506 507 508 509 510 511
+        # Data variables:
+        #     conditioning_means     (conditioning_variable) float32 104B dask.array<chunksize=(26,), meta=np.ndarray>
+        #     conditioning_stds      (conditioning_variable) float32 104B dask.array<chunksize=(26,), meta=np.ndarray>
+        #     invariants             (invariant, y, x) float32 3MB dask.array<chunksize=(1, 256, 320), meta=np.ndarray>
+        #     means                  (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
+        #     stds                   (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
+
         variables = metadata["variable"].values
-        conditioning_variables = metadata["conditioning_variable"].values
+        conditioning_variables = metadata[
+            "conditioning_variable"
+        ].values  # ? what's conditioning variable?
 
         # Expand dims and tensorify normalization buffers
         means = torch.from_numpy(metadata["means"].values[None, :, None, None])
@@ -307,7 +330,9 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         )
 
         # Load invariants
-        invariants = metadata["invariants"].sel(invariant=config.data.invariants).values
+        invariants = (
+            metadata["invariants"].sel(invariant=config.data.invariants).values
+        )  # ? what's invariant?
         invariants = torch.from_numpy(invariants).repeat(1, 1, 1, 1)
 
         # EDM sampler arguments
@@ -332,7 +357,6 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
 
     @torch.inference_mode()
     def _forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
-
         # Scale data
         if "conditioning_means" in self._buffers:
             conditioning = conditioning - self.conditioning_means
@@ -438,7 +462,443 @@ class StormCast(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         x: torch.Tensor,
         coords: CoordSystem,
     ) -> Generator[tuple[torch.Tensor, CoordSystem], None, None]:
+        coords = coords.copy()
+        self.output_coords(coords)
+        yield x, coords
 
+        if self.conditioning_data_source is None:
+            raise ValueError(
+                "A conditioning data source must be available for the iterator to function."
+            )
+
+        while True:
+            # Front hook
+            x, coords = self.front_hook(x, coords)
+            # Forward
+            x, coords = self.__call__(x, coords)
+            # Rear hook
+            x, coords = self.rear_hook(x, coords)
+            yield x, coords.copy()
+
+    def create_iterator(
+        self, x: torch.Tensor, coords: CoordSystem
+    ) -> Iterator[tuple[torch.Tensor, CoordSystem]]:
+        """Creates a iterator which can be used to perform time-integration of the
+        prognostic model. Will return the initial condition first (0th step).
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor
+        coords : CoordSystem
+            Input coordinate system
+
+        Yields
+        ------
+        Iterator[tuple[torch.Tensor, CoordSystem]]
+            Iterator that generates time-steps of the prognostic model container the
+            output data tensor and coordinate system dictionary.
+        """
+        yield from self._default_generator(x, coords)
+
+
+@check_optional_dependencies()
+class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
+    """StormCast generative convection-allowing model for regional forecasts consists of
+    two core models: a regression and diffusion model. Model time step size is 1 hour,
+    taking as input:
+
+    - High-resolution (3km) RWRF state over the central United States (99 vars)
+    - High-resolution land-sea mask and orography invariants
+    - Coarse resolution (25km) global state (26 vars)
+
+    The high-resolution grid is the RWRF Lambert conformal projection
+    Coarse-resolution inputs are regridded to the RWRF grid internally.
+
+    Note
+    ----
+    For more information see the following references:
+
+    - https://arxiv.org/abs/2408.10958
+
+    Parameters
+    ----------
+    regression_model : torch.nn.Module
+        Deterministic model used to make an initial prediction
+    diffusion_model : torch.nn.Module
+        Generative model correcting the deterministic prediciton
+    means : torch.Tensor
+        Mean value of each input high-resolution variable
+    stds : torch.Tensor
+        Standard deviation of each input high-resolution variable
+    invariants : torch.Tensor
+        Static invariant  quantities
+    rwrf_lat_lim : tuple[int, int], optional
+        RWRF grid latitude limits, defaults to be the StormCast region around National Taiwan University (25.0173° N, 121.5398° E), which corresponds to indices (295, 234) on the RWRF grid, by default (279, 311)
+    rwrf_lon_lim : tuple[int, int], optional
+        RWRF grid longitude limits, defaults to be the StormCast region around National Taiwan University (25.0173° N, 121.5398° E), which corresponds to indices (295, 234) on the RWRF grid, by default (218, 250)
+    variables : np.array, optional
+        High-resolution variables, by default np.array(VARIABLES)
+    conditioning_means : torch.Tensor | None, optional
+        Means to normalize conditioning data, by default None
+    conditioning_stds : torch.Tensor | None, optional
+        Standard deviations to normalize conditioning data, by default None
+    conditioning_variables : np.array, optional
+        Global variables for conditioning, by default np.array(CONDITIONING_VARIABLES)
+    conditioning_data_source : DataSource | ForecastSource | None, optional
+        Data Source to use for global conditioning. Required for running in iterator mode, by default None
+    sampler_args : dict[str, float  |  int], optional
+        Arguments to pass to the diffusion sampler, by default {}
+    """
+
+    def __init__(
+        self,
+        regression_model: torch.nn.Module,
+        diffusion_model: torch.nn.Module,
+        means: torch.Tensor,
+        stds: torch.Tensor,
+        invariants: torch.Tensor,
+        rwrf_lat_lim: tuple[int, int] = (276, 308),
+        rwrf_lon_lim: tuple[int, int] = (243, 275),
+        variables: np.array = np.array(VARIABLES),
+        conditioning_means: torch.Tensor | None = None,
+        conditioning_stds: torch.Tensor | None = None,
+        conditioning_variables: np.array = np.array(CONDITIONING_VARIABLES),
+        conditioning_data_source: DataSource | ForecastSource | None = None,
+        sampler_args: dict[str, float | int] = {},
+    ):
+        super().__init__()
+        self.regression_model = regression_model
+        self.diffusion_model = diffusion_model
+        self.register_buffer("means", means)
+        self.register_buffer("stds", stds)
+        self.register_buffer("invariants", invariants)
+        self.sampler_args = sampler_args
+
+        rwrf_lat, rwrf_lon = RWRF.grid()
+        self.lat = rwrf_lat[
+            rwrf_lat_lim[0] : rwrf_lat_lim[1], rwrf_lon_lim[0] : rwrf_lon_lim[1]
+        ]
+        self.lon = rwrf_lon[
+            rwrf_lat_lim[0] : rwrf_lat_lim[1], rwrf_lon_lim[0] : rwrf_lon_lim[1]
+        ]
+
+        self.rwrf_x = np.arange(rwrf_lon_lim[0], rwrf_lon_lim[1], 1)
+        self.rwrf_y = np.arange(rwrf_lat_lim[0], rwrf_lat_lim[1], 1)
+
+        self.variables = variables
+
+        self.conditioning_variables = conditioning_variables
+        self.conditioning_data_source = conditioning_data_source
+        if conditioning_data_source is None:
+            warnings.warn(
+                "No conditioning data source was provided to StormCast, "
+                + "set the conditioning_data_source attribute of the model "
+                + "before running inference."
+            )
+
+        if conditioning_means is not None:
+            self.register_buffer("conditioning_means", conditioning_means)
+
+        if conditioning_stds is not None:
+            self.register_buffer("conditioning_stds", conditioning_stds)
+
+    def input_coords(self) -> CoordSystem:
+        """Input coordinate system"""
+        return OrderedDict(
+            {
+                "batch": np.empty(0),
+                "time": np.empty(0),
+                "lead_time": np.array([np.timedelta64(0, "h")]),
+                "variable": np.array(self.variables),
+                "rwrf_y": self.rwrf_y,
+                "rwrf_x": self.rwrf_x,
+            }
+        )
+
+    @batch_coords()
+    def output_coords(self, input_coords: CoordSystem) -> CoordSystem:
+        """Output coordinate system of diagnostic model
+
+        Parameters
+        ----------
+        input_coords : CoordSystem
+            Input coordinate system to transform into output_coords
+            by default None, will use self.input_coords.
+
+        Returns
+        -------
+        CoordSystem
+            Coordinate system dictionary
+        """
+
+        output_coords = OrderedDict(
+            {
+                "batch": np.empty(0),
+                "time": np.empty(0),
+                "lead_time": np.array([np.timedelta64(1, "h")]),
+                "variable": np.array(self.variables),
+                "rwrf_y": self.rwrf_y,
+                "rwrf_x": self.rwrf_x,
+            }
+        )
+
+        target_input_coords = self.input_coords()
+
+        handshake_dim(input_coords, "rwrf_x", 5)
+        handshake_dim(input_coords, "rwrf_y", 4)
+        handshake_dim(input_coords, "variable", 3)
+        handshake_coords(input_coords, target_input_coords, "rwrf_x")
+        handshake_coords(input_coords, target_input_coords, "rwrf_y")
+        handshake_coords(input_coords, target_input_coords, "variable")
+
+        output_coords["batch"] = input_coords["batch"]
+        output_coords["time"] = input_coords["time"]
+        output_coords["lead_time"] = (
+            output_coords["lead_time"] + input_coords["lead_time"]
+        )
+        return output_coords
+
+    @classmethod
+    def load_default_package(cls) -> Package:
+        """Load prognostic package"""
+        package = Package(
+            "/home/master/13/dczy/stormcast-v1-era5-hrrr_v1.0.1",
+            cache=False,
+        )
+        return package
+
+    @classmethod
+    @check_optional_dependencies()
+    def load_model(
+        cls,
+        package: Package,
+        conditioning_data_source: DataSource | ForecastSource = GFS_FX(),
+    ) -> DiagnosticModel:
+        """Load prognostic from package
+
+        Parameters
+        ----------
+        package : Package
+            Package to load model from
+        conditioning_data_source : DataSource | ForecastSource, optional
+            Data source to use for global conditioning, by default GFS_FX
+
+        Returns
+        -------
+        PrognosticModel
+            Prognostic model
+        """
+        try:
+            OmegaConf.register_new_resolver("eval", eval)
+        except ValueError:
+            # Likely already registered so skip
+            pass
+
+        # load model registry:
+        config = OmegaConf.load(package.resolve("model.yaml"))
+
+        regression = PhysicsNemoModule.from_checkpoint(
+            # package.resolve("StormCastUNet.0.0.mdlus")
+            package.resolve(
+                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_reg_0710_24hrs/stormcast-training/0/checkpoints_regression/StormCastUNet.0.16000.mdlus"
+            )
+        )
+        diffusion = PhysicsNemoModule.from_checkpoint(
+            # package.resolve("EDMPrecond.0.0.mdlus")
+            package.resolve(
+                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_dif_0710_24hrs/diffusion/0/checkpoints_diffusion/EDMPrecond.0.16000.mdlus"
+            )
+        )
+
+        # Load metadata: means, stds, grid
+        # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
+        # metadata = xr.open_zarr(store, zarr_format=2)
+        metadata = create_metadata(
+            variable=["t2m"],
+            conditioning_variable=["t2m"],
+            invariant=[],
+            variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/HighRes/stats/",
+            conditioning_variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/LowRes/stats/",
+        )
+
+        print("data", metadata)
+        # Original Metadata prints
+        # data <xarray.Dataset> Size: 5MB
+        # Dimensions:                (conditioning_variable: 26, invariant: 2, y: 512,
+        #                             x: 640, variable: 99)
+        # Coordinates:
+        #   * conditioning_variable  (conditioning_variable) <U5 520B 'u10m' ... 'q250'
+        #   * invariant              (invariant) <U9 72B 'lsm' 'orography'
+        #     lat                    (y, x) float32 1MB dask.array<chunksize=(256, 320), meta=np.ndarray>
+        #     lon                    (y, x) float32 1MB dask.array<chunksize=(256, 320), meta=np.ndarray>
+        #   * variable               (variable) <U5 2kB 'u10m' 'v10m' ... 'p20hl' 'refc'
+        #   * x                      (x) int64 5kB 0 1 2 3 4 5 ... 634 635 636 637 638 639
+        #   * y                      (y) int64 4kB 0 1 2 3 4 5 ... 506 507 508 509 510 511
+        # Data variables:
+        #     conditioning_means     (conditioning_variable) float32 104B dask.array<chunksize=(26,), meta=np.ndarray>
+        #     conditioning_stds      (conditioning_variable) float32 104B dask.array<chunksize=(26,), meta=np.ndarray>
+        #     invariants             (invariant, y, x) float32 3MB dask.array<chunksize=(1, 256, 320), meta=np.ndarray>
+        #     means                  (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
+        #     stds                   (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
+
+        variables = metadata["variable"].values
+        conditioning_variables = metadata[
+            "conditioning_variable"
+        ].values  # ? what's conditioning variable?
+
+        # Expand dims and tensorify normalization buffers
+        means = torch.from_numpy(metadata["means"].values[None, :, None, None])
+        stds = torch.from_numpy(metadata["stds"].values[None, :, None, None])
+        conditioning_means = torch.from_numpy(
+            metadata["conditioning_means"].values[None, :, None, None]
+        )
+        conditioning_stds = torch.from_numpy(
+            metadata["conditioning_stds"].values[None, :, None, None]
+        )
+
+        # Load invariants
+        # invariants = (
+        #     metadata["invariants"].sel(invariant=config.data.invariants).values
+        # )  # ? what's invariant?
+        invariants = metadata["invariants"].values
+        invariants = torch.from_numpy(invariants).repeat(1, 1, 1, 1)
+
+        # EDM sampler arguments
+        if config.sampler_args is not None:
+            sampler_args = config.sampler_args
+        else:
+            sampler_args = {}
+
+        return cls(
+            regression,
+            diffusion,
+            means,
+            stds,
+            invariants,
+            variables=variables,
+            conditioning_means=conditioning_means,
+            conditioning_stds=conditioning_stds,
+            conditioning_data_source=conditioning_data_source,  #!  use ERA5 to replay/reconstruct past events, use GFS_FX for forecasting
+            conditioning_variables=conditioning_variables,
+            sampler_args=sampler_args,
+        )
+
+    @torch.inference_mode()
+    def _forward(self, x: torch.Tensor, conditioning: torch.Tensor) -> torch.Tensor:
+        # Scale data
+        if "conditioning_means" in self._buffers:
+            conditioning = conditioning - self.conditioning_means
+        if "conditioning_stds" in self._buffers:
+            conditioning = conditioning / self.conditioning_stds
+
+        x = (x - self.means) / self.stds
+
+        # Run regression model
+        print(
+            f"\nshape of x: {x.shape}, conditioning: {conditioning.shape}, invariants: {self.invariants.shape}"
+        )
+        invariant_tensor = self.invariants.repeat(x.shape[0], 1, 1, 1)
+        print(f"shape of invariant_tensor: {invariant_tensor.shape}")
+        concats = torch.cat((x, conditioning, invariant_tensor), dim=1)
+        print(f"shape of concats: {concats.shape}")
+
+        out = self.regression_model(concats)
+        print(f"shape of out: {out.shape}")
+
+        # Concat for diffusion conditioning
+        condition = torch.cat((x, out, invariant_tensor), dim=1)
+        print(f"shape of condition: {condition.shape}")
+        latents = torch.randn_like(x)
+        print(f"shape of latents: {latents.shape}")
+
+        # Run diffusion model
+        edm_out = deterministic_sampler(
+            self.diffusion_model,
+            latents=latents,
+            img_lr=condition,
+            **self.sampler_args,
+        )
+
+        out += edm_out
+
+        out = out * self.stds + self.means
+
+        return out
+
+    @torch.inference_mode()
+    @batch_func()
+    def __call__(
+        self,
+        x: torch.Tensor,
+        coords: CoordSystem,
+    ) -> tuple[torch.Tensor, CoordSystem]:
+        """Runs prognostic model 1 step
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor
+        coords : CoordSystem
+            Input coordinate system
+
+        Returns
+        -------
+        tuple[torch.Tensor, CoordSystem]
+            Output tensor and coordinate system
+
+        Raises
+        ------
+        RuntimeError
+            If conditioning data source is not initialized
+        """
+
+        if self.conditioning_data_source is None:
+            raise RuntimeError(
+                "StormCast has been called without initializing the model's conditioning_data_source"
+            )
+
+        # TODO: Eventually pull out interpolation into model and remove it from fetch
+        # data potentially
+        conditioning, conditioning_coords = fetch_data(
+            self.conditioning_data_source,
+            time=coords["time"],
+            variable=self.conditioning_variables,
+            lead_time=coords["lead_time"],
+            device=x.device,
+            interp_to=coords | {"_lat": self.lat, "_lon": self.lon},
+            interp_method="linear",
+        )
+
+        # Add a batch dim
+        conditioning = conditioning.repeat(x.shape[0], 1, 1, 1, 1, 1)
+        conditioning_coords.update({"batch": np.empty(0)})
+        conditioning_coords.move_to_end("batch", last=False)
+
+        # Handshake conditioning coords
+        # TODO: ugh the interp... have to deal with this for now, no solution
+        # handshake_coords(conditioning_coords, coords, "rwrf_x")
+        # handshake_coords(conditioning_coords, coords, "rwrf_y")
+        handshake_coords(conditioning_coords, coords, "lead_time")
+        handshake_coords(conditioning_coords, coords, "time")
+
+        output_coords = self.output_coords(coords)
+
+        for i, _ in enumerate(coords["batch"]):
+            for j, _ in enumerate(coords["time"]):
+                for k, _ in enumerate(coords["lead_time"]):
+                    x[i, j, k : k + 1] = self._forward(
+                        x[i, j, k : k + 1], conditioning[i, j, k : k + 1]
+                    )
+
+        return x, output_coords
+
+    @batch_func()
+    def _default_generator(
+        self,
+        x: torch.Tensor,
+        coords: CoordSystem,
+    ) -> Generator[tuple[torch.Tensor, CoordSystem], None, None]:
         coords = coords.copy()
         self.output_coords(coords)
         yield x, coords

@@ -30,7 +30,7 @@ from earth2studio.models.px.interpmodafno import InterpModAFNO
 from earth2studio.models.px.pangu import Pangu3, Pangu6, Pangu24
 from earth2studio.models.px.persistence import Persistence
 from earth2studio.models.px.sfno import SFNO
-from earth2studio.models.px.stormcast import StormCast
+from earth2studio.models.px.stormcast import StormCast, StormCastTaiwan
 
 # TODO: Remove upon physics-nemo update...
 # package turned on logging of warnings in 1.1.0, this is silencing them

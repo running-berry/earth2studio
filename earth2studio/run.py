@@ -86,12 +86,20 @@ def deterministic(
     prognostic_ic = prognostic.input_coords()
     time = to_time_array(time)
 
+    logger.info(
+        f"{prognostic.__class__.__name__} has interpolation method: {hasattr(prognostic, 'interp_method')}"
+    )
+
     if hasattr(prognostic, "interp_method"):
         interp_to = prognostic_ic
         interp_method = prognostic.interp_method
     else:
         interp_to = None
         interp_method = "nearest"
+
+    logger.info(
+        f"Using {interp_method} interpolation method to interpolate to {interp_to}"
+    )
 
     x, coords = fetch_data(
         source=data,
@@ -252,7 +260,6 @@ def diagnostic(
     logger.info("Inference starting!")
     with tqdm(total=nsteps + 1, desc="Running inference", position=1) as pbar:
         for step, (x, coords) in enumerate(model):
-
             # Run diagnostic
             x, coords = map_coords(x, coords, diagnostic_ic)
             x, coords = diagnostic(x, coords)
@@ -381,7 +388,6 @@ def ensemble(
         desc="Total Ensemble Batches",
         position=2,
     ):
-
         # Get fresh batch data
         x = x0.to(device)
 

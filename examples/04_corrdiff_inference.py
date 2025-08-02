@@ -37,9 +37,10 @@ In this example you will learn:
 - Initializing and running CorrDiff diagnostic model
 - Post-processing results.
 """
+#   "earth2studio[corrdiff] @ git+https://github.com/NVIDIA/earth2studio.git",
 # /// script
 # dependencies = [
-#   "earth2studio[corrdiff] @ git+https://github.com/NVIDIA/earth2studio.git",
+#   "earth2studio[corrdiff] @ file:///home/master/14/andrewhsu/projects/earth2studio/",
 #   "cartopy",
 # ]
 # ///
@@ -200,6 +201,9 @@ io = run(["2023-10-04T18:00:00"], corrdiff, data, io, number_of_samples=1)
 # %%
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+
+# "lat": np.linspace(19.25, 28, 36, endpoint=True),
+# "lon": np.linspace(116, 126, 40, endpoint=False),
 
 projection = ccrs.LambertConformal(
     central_longitude=io["lon"][:].mean(),
