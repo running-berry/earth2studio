@@ -776,22 +776,22 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         x = (x - self.means) / self.stds
 
         # Run regression model
-        print(
-            f"\nshape of x: {x.shape}, conditioning: {conditioning.shape}, invariants: {self.invariants.shape}"
-        )
+        # print(
+        #     f"\nshape of x: {x.shape}, conditioning: {conditioning.shape}, invariants: {self.invariants.shape}"
+        # )
         invariant_tensor = self.invariants.repeat(x.shape[0], 1, 1, 1)
-        print(f"shape of invariant_tensor: {invariant_tensor.shape}")
+        # print(f"shape of invariant_tensor: {invariant_tensor.shape}")
         concats = torch.cat((x, conditioning, invariant_tensor), dim=1)
-        print(f"shape of concats: {concats.shape}")
+        # print(f"shape of concats: {concats.shape}")
 
         out = self.regression_model(concats)
-        print(f"shape of out: {out.shape}")
+        # print(f"shape of out: {out.shape}")
 
         # Concat for diffusion conditioning
         condition = torch.cat((x, out, invariant_tensor), dim=1)
-        print(f"shape of condition: {condition.shape}")
+        # print(f"shape of condition: {condition.shape}")
         latents = torch.randn_like(x)
-        print(f"shape of latents: {latents.shape}")
+        # print(f"shape of latents: {latents.shape}")
 
         # Run diffusion model
         edm_out = deterministic_sampler(
