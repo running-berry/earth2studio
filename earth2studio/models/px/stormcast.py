@@ -37,7 +37,6 @@ from earth2studio.utils.imports import (
     OptionalDependencyFailure,
     check_optional_dependencies,
 )
-from earth2studio.utils.metadata import create_metadata
 from earth2studio.utils.type import CoordSystem
 
 try:
@@ -663,7 +662,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
     def load_default_package(cls) -> Package:
         """Load prognostic package"""
         package = Package(
-            "/home/master/13/dczy/stormcast-v1-era5-hrrr_v1.0.1",
+            "/home/master/14/andrewhsu/projects/physicsnemo/dev/e2s_package",
             cache=False,
         )
         return package
@@ -699,28 +698,15 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         config = OmegaConf.load(package.resolve("model.yaml"))
 
         regression = PhysicsNemoModule.from_checkpoint(
-            # package.resolve("StormCastUNet.0.0.mdlus")
-            package.resolve(
-                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_reg_0710_24hrs/stormcast-training/0/checkpoints_regression/StormCastUNet.0.16000.mdlus"
-            )
+            package.resolve("StormCastUNet.0.0.mdlus")
         )
         diffusion = PhysicsNemoModule.from_checkpoint(
-            # package.resolve("EDMPrecond.0.0.mdlus")
-            package.resolve(
-                "/home/master/14/andrewhsu/projects/earth2studio/checkpoints/rundir_dif_0710_24hrs/diffusion/0/checkpoints_diffusion/EDMPrecond.0.16000.mdlus"
-            )
+            package.resolve("EDMPrecond.0.0.mdlus")
         )
 
         # Load metadata: means, stds, grid
-        # store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
-        # metadata = xr.open_zarr(store, zarr_format=2)
-        metadata = create_metadata(
-            variable=["t2m"],
-            conditioning_variable=["t2m"],
-            invariant=[],
-            variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/HighRes/stats/",
-            conditioning_variable_file_path="/home/master/14/andrewhsu/projects/physicsnemo/dev/data/LowRes/stats/",
-        )
+        store = zarr.storage.ZipStore(package.resolve("metadata.zarr.zip"), mode="r")
+        metadata = xr.open_zarr(store, zarr_format=2)
 
         print("data", metadata)
         # Original Metadata prints
@@ -743,9 +729,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         #     stds                   (variable) float32 396B dask.array<chunksize=(99,), meta=np.ndarray>
 
         variables = metadata["variable"].values
-        conditioning_variables = metadata[
-            "conditioning_variable"
-        ].values  # ? what's conditioning variable?
+        conditioning_variables = metadata["conditioning_variable"].values
 
         # Expand dims and tensorify normalization buffers
         means = torch.from_numpy(metadata["means"].values[None, :, None, None])
@@ -758,10 +742,7 @@ class StormCastTaiwan(torch.nn.Module, AutoModelMixin, PrognosticMixin):
         )
 
         # Load invariants
-        # invariants = (
-        #     metadata["invariants"].sel(invariant=config.data.invariants).values
-        # )  # ? what's invariant?
-        invariants = metadata["invariants"].values
+        invariants = metadata["invariants"].sel(invariant=config.data.invariants).values
         invariants = torch.from_numpy(invariants).repeat(1, 1, 1, 1)
 
         # EDM sampler arguments
